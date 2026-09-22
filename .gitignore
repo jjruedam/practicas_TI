@@ -1,0 +1,8 @@
+*.pdf
+/DatosSinapsisArtificial-TI
+**/__pycache__
+*.pptx
+*.zip
+*.xlsx
+*.csv
+*.ini
