@@ -1,0 +1,42 @@
+{
+  "config": {
+    "notes": "",
+    "simple_event": {
+      "bins": null,
+      "discretization": "identity",
+      "labels": null,
+      "name": "simple_event",
+      "stride": 1,
+      "thresholds": [],
+      "version": 1,
+      "window": 1
+    },
+    "source_name": "TrozoC.txt",
+    "version": 1,
+    "word_length": 2
+  },
+  "counts": {
+    "0,1,0": 1,
+    "0,1,1": 2,
+    "1,0,1": 2,
+    "1,1,0": 2
+  },
+  "metrics": {
+    "block_entropy": 1.5566567074628228,
+    "block_entropy_plus_one": 1.950212064914747,
+    "entropy_conditional": 0.39355535745192416,
+    "total_count": 7.0
+  },
+  "sequence": [
+    0,
+    1,
+    1,
+    0,
+    1,
+    0,
+    1,
+    1,
+    0
+  ],
+  "version": 1
+}
