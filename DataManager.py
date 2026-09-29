@@ -20,6 +20,7 @@ import pandas as pd
 DEFAULT_DATA_DIR = Path(__file__).parent / "DatosSinapsisArtificial-TI"
 RECORDING_LENGTH = 100000
 SPIKE_LOOKAHEAD_OVERLAP = 2
+SAMPLE_INTERVAL = 0.1
 
 
 class DataManager:
@@ -215,6 +216,161 @@ class DataManager:
     # ------------------------------------------------------------------
     # Spike discretization
     # ------------------------------------------------------------------
+    
+    def find_spikes(
+        self,
+        acceptance_threshold: pd.Series | float | None = None,
+    ):
+        """
+        Detecta todos los spikes del fichero completo.
+
+        Parameters
+        ----------
+        acceptance_threshold : pd.Series | float | None
+            Umbral utilizado para detectar los spikes.
+
+            - Si es un float, se utiliza el mismo umbral para todos los canales.
+            - Si es un pd.Series, cada canal utiliza su propio umbral.
+            - Si es None, se utiliza self.global_mean_max.
+
+        Returns
+        -------
+        spike_counts : dict
+            Número total de spikes detectados para cada canal.
+
+        spike_times : dict
+            Array con los tiempos globales de los spikes detectados
+            para cada canal.
+        """
+
+        if acceptance_threshold is None:
+            acceptance_threshold = self.global_mean_max
+
+        # Juntamos todos los recordings para recuperar la secuencia
+        # temporal completa del fichero.
+        data = self.recordings.reshape(-1, self.n_channels)
+
+        spike_counts = {}
+        spike_times = {}
+
+        for c, name in enumerate(self.channel_names):
+
+            # Umbral correspondiente a este canal.
+            threshold = (
+                acceptance_threshold[name]
+                if isinstance(acceptance_threshold, pd.Series)
+                else acceptance_threshold
+            )
+
+            # Datos completos del canal.
+            channel = data[:, c]
+
+            # True  -> señal >= umbral
+            # False -> señal < umbral
+            above_threshold = channel >= threshold
+
+            # +1 -> empieza un spike
+            # -1 -> termina un spike
+            changes = np.diff(above_threshold.astype(int))
+
+            # Índice de la primera muestra dentro del spike.
+            starts = np.where(changes == 1)[0] + 1
+
+            # Índice de la última muestra dentro del spike.
+            ends = np.where(changes == -1)[0]
+
+            # Tiempo medio de cada spike.
+            times = (
+                (starts + ends) / 2
+            ) * SAMPLE_INTERVAL
+
+            # Guardamos resultados para este canal.
+            spike_counts[name] = len(times)
+            spike_times[name] = times
+
+        return spike_counts, spike_times    
+
+    def _count_spikes_window(
+        self,
+        spike_times: np.ndarray,
+        window_size: float,
+    ) -> int:
+
+        # Calculamos a qué ventana pertenece cada spike.
+        windows = np.floor(spike_times / window_size)
+
+        # Si varios spikes caen en la misma ventana,
+        # solo se cuenta uno.
+        detected_spikes = len(np.unique(windows))
+
+        return detected_spikes
+
+    def optimal_window(
+        self,
+        spike_counts: dict,
+        spike_times: dict,
+        max_loss: float = 0.05,
+    ):
+
+        """
+        Determina el tamaño máximo de ventana que permite perder
+        como máximo un porcentaje dado de los spikes totales.
+
+        Parameters
+        ----------
+        spike_counts : dict
+            Número total de spikes de cada canal.
+
+        spike_times : dict
+            Array con los tiempos globales de los spikes de cada canal.
+
+        max_loss : float
+            Proporción máxima de spikes que se permite perder.
+            Por defecto es 0.05, es decir, un 5 %.
+
+        Returns
+        -------
+        optimal_windows : dict
+            Tamaño óptimo de ventana para cada canal,
+            expresado en unidades de tiempo.
+        """
+
+        optimal_windows = {}
+
+        for name in self.channel_names:
+
+            times = spike_times[name]
+            total_spikes = spike_counts[name]
+
+            # Distancias temporales entre spikes consecutivos.
+            distances = np.diff(times)
+
+            # Empezamos por la distancia mínima.
+            window = np.min(distances)
+
+            loss = 0.0
+            best_window = window
+
+            while loss <= max_loss:
+
+                # Calculamos el número de spikes detectados en función de la ventana
+                detected_spikes = self._count_spikes_window(times, window)
+
+                # Porcentaje de spikes perdidos.
+                loss = (
+                    total_spikes - detected_spikes
+                ) / total_spikes
+
+                # Si seguimos perdiendo como máximo un 5 %,
+                # esta ventana es válida y probamos una mayor.
+                if loss <= max_loss:
+                    best_window = window
+                    window += SAMPLE_INTERVAL
+
+            optimal_windows[name] = best_window
+
+        return optimal_windows
+    
     def discretize(
         self,
         event_time_window: int,
