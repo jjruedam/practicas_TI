@@ -4,10 +4,12 @@ import json
 import math
 import warnings
 from dataclasses import dataclass, field
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+import pandas as pd
 
 from DataManager import DataManager
 
@@ -25,10 +27,8 @@ class SimpleEventConfig:
     name: str = "simple_event"
     window: int = 1
     stride: int = 1
-    discretization: str = "identity"
+    discretization: str = "spike_detection"
     thresholds: tuple[float, ...] = ()
-    bins: tuple[float, ...] | None = None
-    labels: tuple[Any, ...] | None = None
     version: int = 1
 
     def to_dict(self) -> dict[str, Any]:
@@ -38,8 +38,6 @@ class SimpleEventConfig:
             "stride": self.stride,
             "discretization": self.discretization,
             "thresholds": list(self.thresholds),
-            "bins": list(self.bins) if self.bins is not None else None,
-            "labels": list(self.labels) if self.labels is not None else None,
             "version": self.version,
         }
 
@@ -49,10 +47,8 @@ class SimpleEventConfig:
             name=str(data.get("name", "simple_event")),
             window=int(data.get("window", 1)),
             stride=int(data.get("stride", 1)),
-            discretization=str(data.get("discretization", "identity")),
+            discretization=str(data.get("discretization", "spike_detection")),
             thresholds=tuple(float(v) for v in data.get("thresholds", ())),
-            bins=None if data.get("bins") is None else tuple(float(v) for v in data["bins"]),
-            labels=None if data.get("labels") is None else tuple(data["labels"]),
             version=int(data.get("version", 1)),
         )
 
@@ -95,17 +91,19 @@ class EventExperiment:
         self,
         sequence: Sequence[Any] | np.ndarray | None = None,
         manager: DataManager | None = None,
-        word_length: int = 1,
+        word_length: int | None = None,
         config: EventConfig | Mapping[str, Any] | None = None,
     ):
-        if manager is not None:
-            channels = manager.channel_names
-            self.sequence = manager.discretize(event_time_window=40)[:,0]
-        elif sequence is not None:
-            self.sequence = tuple(np.asarray(sequence).ravel().tolist())
-        else:
-            raise ValueError("No sequence or manager found")
-        self.word_length = int(word_length)
+        configured_word_length = (
+            config.word_length
+            if isinstance(config, EventConfig)
+            else int(config.get("word_length", 1))
+            if isinstance(config, Mapping)
+            else 1
+        )
+        self.word_length = int(
+            configured_word_length if word_length is None else word_length
+        )
         if self.word_length < 1:
             raise ValueError("word_length must be >= 1.")
 
@@ -113,11 +111,23 @@ class EventExperiment:
             self.config = EventConfig(word_length=self.word_length)
         elif isinstance(config, EventConfig):
             self.config = config
-            if self.config.word_length != self.word_length:
-                self.config.word_length = self.word_length
+            self.config.word_length = self.word_length
         else:
             self.config = EventConfig.from_dict(config)
             self.config.word_length = self.word_length
+
+        self.is_manager_backed = False
+        self.channel_names: list[str] = []
+        self.channel_experiments: dict[str, EventExperiment] = {}
+        self.pairwise_mutual_information: dict[tuple[str, str], float] = {}
+        self.output_path: Path | None = None
+        if manager is not None:
+            self._initialize_from_manager(manager)
+        elif sequence is not None:
+            self.sequence = tuple(np.asarray(sequence).ravel().tolist())
+            self.recording_sequences = (self.sequence,)
+        else:
+            raise ValueError("No sequence or manager found")
 
         self.counts: dict[tuple[Any, ...], int] = {}
         self.marginal_counts: dict[tuple[Any, ...], int] = {}
@@ -127,35 +137,190 @@ class EventExperiment:
         self.block_entropy_plus_one = 0.0
         self._entropy_conditional = 0.0
         self._build_counts_and_distributions()
+        if manager is not None:
+            self.output_path = self._manager_output_path(manager)
+            self.save(self.output_path)
+
+    def _initialize_from_manager(self, manager: DataManager) -> None:
+        simple_event = self.config.simple_event
+        if simple_event.window < 1:
+            raise ValueError("simple_event.window must be >= 1.")
+        if simple_event.stride < 1:
+            raise ValueError("simple_event.stride must be >= 1.")
+        if simple_event.discretization != "spike_detection":
+            raise ValueError("DataManager supports only spike_detection simple-event discretization.")
+
+        self.channel_names = list(manager.channel_names)
+        if not self.channel_names or len(set(self.channel_names)) != len(self.channel_names):
+            raise ValueError("DataManager channel_names must be non-empty and unique.")
+        if self.config.source_name is None:
+            self.config.source_name = str(manager.filename)
+
+        threshold: float | pd.Series | None = None
+        if simple_event.thresholds:
+            if len(simple_event.thresholds) == 1:
+                threshold = simple_event.thresholds[0]
+            elif len(simple_event.thresholds) == len(self.channel_names):
+                threshold = pd.Series(dict(zip(self.channel_names, simple_event.thresholds)))
+            else:
+                raise ValueError(
+                    "simple_event.thresholds must contain one value or one value per channel."
+                )
+        elif getattr(manager, "global_mean_max", None) is not None:
+            global_thresholds = manager.global_mean_max
+            if isinstance(global_thresholds, pd.Series):
+                threshold = global_thresholds.reindex(self.channel_names)
+            elif isinstance(global_thresholds, Mapping):
+                threshold = pd.Series(global_thresholds).reindex(self.channel_names)
+            else:
+                threshold = pd.Series(
+                    {channel_name: float(global_thresholds) for channel_name in self.channel_names}
+                )
+            self.config.simple_event.thresholds = tuple(
+                float(value) for value in threshold.reindex(self.channel_names).tolist()
+            )
+
+        events = np.asarray(
+            manager.discretize(
+                event_time_window=simple_event.window,
+                acceptance_threshold=threshold,
+            )
+        )
+        if events.ndim != 3 or events.shape[2] != len(self.channel_names):
+            raise ValueError(
+                "DataManager.discretize() must return an array shaped "
+                "(recordings, chunks, channels)."
+            )
+        events = events[:, :: simple_event.stride, :]
+
+        self.is_manager_backed = True
+        self.manager_recordings = events
+        self.recording_sequences = tuple(
+            tuple(tuple(row) for row in recording.tolist()) for recording in events
+        )
+        self.sequence = tuple(row for recording in self.recording_sequences for row in recording)
+
+        for index, channel_name in enumerate(self.channel_names):
+            channel_recordings = tuple(
+                tuple(recording[:, index].tolist()) for recording in events
+            )
+            channel_experiment = EventExperiment(
+                sequence=tuple(value for recording in channel_recordings for value in recording),
+                word_length=self.word_length,
+                config=self.config,
+            )
+            channel_experiment.recording_sequences = channel_recordings
+            channel_experiment.channel_name = channel_name
+            channel_experiment.invalidate_cache()
+            self.channel_experiments[channel_name] = channel_experiment
+
+        for left, right in combinations(range(len(self.channel_names)), 2):
+            pair = (self.channel_names[left], self.channel_names[right])
+            self.pairwise_mutual_information[pair] = mutual_information(
+                events[:, :, left].ravel(), events[:, :, right].ravel()
+            )
+
+    def _manager_output_path(self, manager: DataManager) -> Path:
+        directory = Path(manager.data_dir) / "experiments"
+        source_stem = Path(manager.filename).stem
+        stem = f"{source_stem}_window-{self.config.simple_event.window}_word-{self.word_length}"
+        target = directory / f"{stem}.json"
+        suffix = 1
+        while target.exists():
+            target = directory / f"{stem}_({suffix}).json"
+            suffix += 1
+        return target
 
     @classmethod
     def load(cls, path: str | Path) -> "EventExperiment":
         with Path(path).open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         config = EventConfig.from_dict(payload.get("config", {}))
+        if payload.get("kind") == "manager":
+            experiment = cls(
+                sequence=[],
+                word_length=config.word_length,
+                config=config,
+            )
+            experiment.channel_names = list(payload["channel_names"])
+            experiment._restore_manager_recordings(payload["recordings"])
+            return experiment
         sequence = payload.get("sequence", [])
         return cls(sequence, word_length=config.word_length, config=config)
+
+    def _restore_manager_recordings(self, recordings: Sequence[Any]) -> None:
+        events = np.asarray(recordings)
+        if events.ndim != 3 or events.shape[2] != len(self.channel_names):
+            raise ValueError("Saved manager experiment has invalid recording dimensions.")
+        self.is_manager_backed = True
+        self.manager_recordings = events
+        self.recording_sequences = tuple(
+            tuple(tuple(row) for row in recording.tolist()) for recording in events
+        )
+        self.sequence = tuple(row for recording in self.recording_sequences for row in recording)
+        self.channel_experiments = {}
+        for index, channel_name in enumerate(self.channel_names):
+            channel_recordings = tuple(tuple(recording[:, index].tolist()) for recording in events)
+            channel_experiment = EventExperiment(
+                sequence=tuple(value for recording in channel_recordings for value in recording),
+                word_length=self.word_length,
+                config=self.config,
+            )
+            channel_experiment.recording_sequences = channel_recordings
+            channel_experiment.channel_name = channel_name
+            channel_experiment.invalidate_cache()
+            self.channel_experiments[channel_name] = channel_experiment
+        self.pairwise_mutual_information = {}
+        for left, right in combinations(range(len(self.channel_names)), 2):
+            pair = (self.channel_names[left], self.channel_names[right])
+            self.pairwise_mutual_information[pair] = mutual_information(
+                events[:, :, left].ravel(), events[:, :, right].ravel()
+            )
+        self.invalidate_cache()
 
     def save(self, path: str | Path) -> Path:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        payload = {
-            "version": 1,
-            "config": self.config.to_dict(),
-            "sequence": list(self.sequence),
-            "counts": self._serialize_counts(self.counts),
-            "metrics": {
-                "block_entropy": self.block_entropy,
-                "block_entropy_plus_one": self.block_entropy_plus_one,
-                "entropy_conditional": self.entropy_conditional,
-                "total_count": self.total_count,
-            },
-        }
+        if self.is_manager_backed:
+            payload = {
+                "version": 2,
+                "kind": "manager",
+                "config": self.config.to_dict(),
+                "channel_names": self.channel_names,
+                "recordings": self.manager_recordings.tolist(),
+                "counts": self._serialize_counts(self.counts),
+                "metrics": self._metrics_payload(self),
+                "channel_metrics": {
+                    name: self._metrics_payload(experiment)
+                    for name, experiment in self.channel_experiments.items()
+                },
+                "pairwise_mutual_information": [
+                    {"channels": list(pair), "bits": value}
+                    for pair, value in self.pairwise_mutual_information.items()
+                ],
+            }
+        else:
+            payload = {
+                "version": 1,
+                "config": self.config.to_dict(),
+                "sequence": list(self.sequence),
+                "counts": self._serialize_counts(self.counts),
+                "metrics": self._metrics_payload(self),
+            }
 
         with target.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, default=str, sort_keys=True)
         return target
+
+    @staticmethod
+    def _metrics_payload(experiment: "EventExperiment") -> dict[str, float]:
+        return {
+            "block_entropy": experiment.block_entropy,
+            "block_entropy_plus_one": experiment.block_entropy_plus_one,
+            "entropy_conditional": experiment.entropy_conditional,
+            "total_count": experiment.total_count,
+        }
 
     @staticmethod
     def _serialize_counts(counts: Mapping[tuple[Any, ...], int]) -> dict[str, int]:
@@ -167,7 +332,8 @@ class EventExperiment:
     def _build_counts_and_distributions(self) -> None:
         self.counts = {}
         self.marginal_counts = {}
-        if not self.sequence:
+        sequences = getattr(self, "recording_sequences", (self.sequence,))
+        if not any(sequences):
             self.word_distribution = WordDistribution()
             self.block_entropy = 0.0
             self.block_entropy_plus_one = 0.0
@@ -176,9 +342,10 @@ class EventExperiment:
             return
 
         full_length = self.word_length + 1
-        for i in range(len(self.sequence) - full_length + 1):
-            word = tuple(self.sequence[i : i + full_length])
-            self.counts[word] = self.counts.get(word, 0) + 1
+        for sequence in sequences:
+            for i in range(len(sequence) - full_length + 1):
+                word = tuple(sequence[i : i + full_length])
+                self.counts[word] = self.counts.get(word, 0) + 1
 
         self.total_count = float(sum(self.counts.values()))
         if self.total_count == 0:
@@ -188,22 +355,12 @@ class EventExperiment:
             self._entropy_conditional = 0.0
             return
 
-        if self.word_length == 1:
-            symbol_counts: dict[Any, int] = {}
-            for event in self.sequence:
-                symbol_counts[event] = symbol_counts.get(event, 0) + 1
-            self.marginal_counts = {k: v for k, v in symbol_counts.items()}
-            total_symbols = float(len(self.sequence))
-            self.word_distribution = WordDistribution(
-                {key: value / total_symbols for key, value in symbol_counts.items()}
-            )
-        else:
-            for key, value in self.counts.items():
-                prefix = key[:-1]
-                self.marginal_counts[prefix] = self.marginal_counts.get(prefix, 0) + value
-            self.word_distribution = WordDistribution(
-                {key: value / self.total_count for key, value in self.marginal_counts.items()}
-            )
+        for key, value in self.counts.items():
+            prefix = key[:-1]
+            self.marginal_counts[prefix] = self.marginal_counts.get(prefix, 0) + value
+        self.word_distribution = WordDistribution(
+            {key: value / self.total_count for key, value in self.marginal_counts.items()}
+        )
 
         self.block_entropy = self._entropy_from_distribution(self.word_distribution)
         self.block_entropy_plus_one = self._entropy_from_counts(self.counts)
@@ -360,30 +517,32 @@ class EventExperiment:
         return self._entropy_conditional
 
     @property
-    def transition_matrix(self) -> np.ndarray:
+    def transition_states(self) -> tuple[tuple[Any, ...], ...]:
         if self.word_length == 0:
-            return np.asarray([[]], dtype=float)
+            return ()
+        states = {
+            state
+            for word in self.counts
+            for state in (word[:-1], word[1:])
+        }
+        return tuple(sorted(states, key=lambda x: tuple(str(v) for v in x)))
 
-        states = sorted(self.word_distribution.keys(), key=lambda x: tuple(str(v) for v in x))
+    @property
+    def transition_matrix(self) -> np.ndarray:
+        states = self.transition_states
         if not states:
             return np.zeros((0, 0), dtype=float)
 
         state_index = {state: i for i, state in enumerate(states)}
         trans = np.zeros((len(states), len(states)), dtype=float)
-        for state in states:
-            row_total = 0.0
-            for symbol in sorted(set(v for word in self.counts for v in word), key=lambda x: str(x)):
-                next_state = state[1:] + (symbol,)
-                if next_state not in state_index:
-                    continue
-                count = 0
-                for full_word, c in self.counts.items():
-                    if full_word[:-1] == state and full_word[-1] == symbol:
-                        count += c
-                trans[state_index[state], state_index[next_state]] += count
-                row_total += count
-            if row_total > 0:
-                trans[state_index[state]] /= row_total
+        row_totals = np.zeros(len(states), dtype=float)
+        for word, count in self.counts.items():
+            source = state_index[word[:-1]]
+            target = state_index[word[1:]]
+            trans[source, target] += count
+            row_totals[source] += count
+        nonzero_rows = row_totals > 0
+        trans[nonzero_rows] /= row_totals[nonzero_rows, np.newaxis]
         return trans
 
     def __repr__(self) -> str:
