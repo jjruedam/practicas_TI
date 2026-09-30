@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-from DataManager import DataManager
+from DataManager import DataManager, SAMPLE_INTERVAL
 
 class WordDistribution(dict):
     """Dictionary-like distribution whose values() returns a NumPy array."""
@@ -22,10 +22,10 @@ class WordDistribution(dict):
 
 @dataclass
 class SimpleEventConfig:
-    """Serializable configuration for the simple-event extraction stage."""
+    """Serializable simple-event configuration; `window` is in milliseconds."""
 
     name: str = "simple_event"
-    window: int = 1
+    window: float = 1
     stride: int = 1
     discretization: str = "spike_detection"
     thresholds: tuple[float, ...] = ()
@@ -45,7 +45,7 @@ class SimpleEventConfig:
     def from_dict(cls, data: Mapping[str, Any]) -> "SimpleEventConfig":
         return cls(
             name=str(data.get("name", "simple_event")),
-            window=int(data.get("window", 1)),
+            window=float(data.get("window", 1)),
             stride=int(data.get("stride", 1)),
             discretization=str(data.get("discretization", "spike_detection")),
             thresholds=tuple(float(v) for v in data.get("thresholds", ())),
@@ -143,8 +143,8 @@ class EventExperiment:
 
     def _initialize_from_manager(self, manager: DataManager) -> None:
         simple_event = self.config.simple_event
-        if simple_event.window < 1:
-            raise ValueError("simple_event.window must be >= 1.")
+        if simple_event.window < SAMPLE_INTERVAL:
+            raise ValueError(f"simple_event.window must be >= {SAMPLE_INTERVAL} ms.")
         if simple_event.stride < 1:
             raise ValueError("simple_event.stride must be >= 1.")
         if simple_event.discretization != "spike_detection":
@@ -182,7 +182,7 @@ class EventExperiment:
 
         events = np.asarray(
             manager.discretize(
-                event_time_window=simple_event.window,
+                event_time_window=int(round(simple_event.window / SAMPLE_INTERVAL)),
                 acceptance_threshold=threshold,
             )
         )
@@ -223,7 +223,7 @@ class EventExperiment:
     def _manager_output_path(self, manager: DataManager) -> Path:
         directory = Path(manager.data_dir) / "experiments"
         source_stem = Path(manager.filename).stem
-        stem = f"{source_stem}_window-{self.config.simple_event.window}_word-{self.word_length}"
+        stem = f"{source_stem}_window-{self.config.simple_event.window:g}_word-{self.word_length}"
         target = directory / f"{stem}.json"
         suffix = 1
         while target.exists():

@@ -2,9 +2,9 @@ import ipywidgets as widgets
 from IPython.display import display
 import matplotlib.pyplot as plt
 
-from DataManager import DataManager
+from DataManager import DataManager, SAMPLE_INTERVAL
 
-VENTANA_INICIAL = 10000
+VENTANA_INICIAL = 1000
 
 
 def crear_widget(manager: DataManager, registro_inicial: int = 24):
@@ -18,13 +18,13 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
         description="Registro:",
         layout=widgets.Layout(width="170px"),
     )
-    w_inicio = widgets.IntText(value=0, description="Inicio:", layout=widgets.Layout(width="200px"))
-    w_ventana = widgets.IntText(
+    w_inicio = widgets.FloatText(value=0, description="Inicio (ms):", layout=widgets.Layout(width="200px"))
+    w_ventana = widgets.FloatText(
         value=VENTANA_INICIAL,
-        description="Ventana:",
+        description="Ventana (ms):",
         layout=widgets.Layout(width="200px"),
     )
-    w_evento = widgets.IntText(value=20, description="Event win:", layout=widgets.Layout(width="170px"))
+    w_evento = widgets.FloatText(value=2, description="Event win. (ms):", layout=widgets.Layout(width="190px"))
     w_media = widgets.Checkbox(value=True, description="show_mean_max", indent=False)
 
     b_ini = widgets.Button(description="Inicio", tooltip="Ir al inicio")
@@ -37,15 +37,16 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
 
     def dibujar():
         nonlocal actualizando
-        estado["ventana"] = max(10, min(estado["ventana"], manager.recording_length))
+        max_window_ms = manager.recording_length * SAMPLE_INTERVAL
+        estado["ventana"] = max(SAMPLE_INTERVAL, min(estado["ventana"], max_window_ms))
         estado["inicio"] = max(
             0,
-            min(estado["inicio"], manager.recording_length - estado["ventana"]),
+            min(estado["inicio"], max_window_ms - estado["ventana"]),
         )
 
         actualizando = True
-        w_inicio.value = int(estado["inicio"])
-        w_ventana.value = int(estado["ventana"])
+        w_inicio.value = estado["inicio"]
+        w_ventana.value = estado["ventana"]
         actualizando = False
 
         inicio, ventana = estado["inicio"], estado["ventana"]
@@ -74,7 +75,7 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
     def cambiar_zoom(factor):
         def callback(_):
             centro = estado["inicio"] + estado["ventana"] / 2
-            estado["ventana"] = max(10, int(estado["ventana"] * factor))
+            estado["ventana"] = max(SAMPLE_INTERVAL, estado["ventana"] * factor)
             estado["inicio"] = int(centro - estado["ventana"] / 2)
             dibujar()
 
@@ -85,7 +86,7 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
         if actualizando:
             return
         estado["inicio"] = w_inicio.value
-        estado["ventana"] = max(10, w_ventana.value)
+        estado["ventana"] = max(SAMPLE_INTERVAL, w_ventana.value)
         dibujar()
 
     b_ini.on_click(ir_inicio)

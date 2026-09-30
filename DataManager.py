@@ -445,11 +445,6 @@ class DataManager:
                 return True
         return False
 
-    def opt_event_win(start=20):
-        """Stimate an ideal events window lenght asumming"""
-        
-        return
-
     # ------------------------------------------------------------------
     # Visualization
     # ------------------------------------------------------------------
@@ -457,26 +452,31 @@ class DataManager:
         self,
         index: int = 0,
         ax: plt.Axes | None = None,
-        zoom: tuple[int, int] | None = None,
+        zoom: tuple[float, float] | None = None,
         show_mean_max: bool = False,
-        event_time_window: int | None = None,
+        event_time_window: float | None = None,
         acceptance_threshold: pd.Series | float | None = None,
     ) -> plt.Axes:
         """
         Overlay all channels of a single recording on one time axis.
 
-        `zoom` restricts the plot to a (start, end) sample-index interval of
-        the recording; defaults to the full range. `show_mean_max` overlays a
+        `zoom` restricts the plot to a (start, end) interval in milliseconds;
+        defaults to the full range. `show_mean_max` overlays a
         dashed horizontal line at each channel's mean_max threshold. If
-        `event_time_window` is given, shades each chunk classified as a spike (see
-        `discretize_recording`), using `acceptance_threshold` for the spike test.
+        `event_time_window` is given in milliseconds and shades each chunk
+        classified as a spike (see `discretize_recording`), using
+        `acceptance_threshold` for the spike test.
         """
         recording = self.get_recording(index)
         time = self._time_axis()
         time, recording = self._apply_zoom(time, recording, zoom)
 
         spikes = (
-            self.discretize_recording(index, event_time_window, acceptance_threshold)
+            self.discretize_recording(
+                index,
+                int(round(event_time_window / SAMPLE_INTERVAL)),
+                acceptance_threshold,
+            )
             if event_time_window is not None
             else None
         )
@@ -501,26 +501,31 @@ class DataManager:
     def plot_channels(
         self,
         index: int = 0,
-        zoom: tuple[int, int] | None = None,
+        zoom: tuple[float, float] | None = None,
         show_mean_max: bool = False,
-        event_time_window: int | None = None,
+        event_time_window: float | None = None,
         acceptance_threshold: pd.Series | float | None = None,
     ):
         """
         Plot each channel of a recording in its own stacked subplot.
 
-        `zoom` restricts the plot to a (start, end) sample-index interval of
-        the recording; defaults to the full range. `show_mean_max` overlays a
+        `zoom` restricts the plot to a (start, end) interval in milliseconds;
+        defaults to the full range. `show_mean_max` overlays a
         dashed horizontal line at each channel's mean_max threshold. If
-        `event_time_window` is given, shades each chunk classified as a spike (see
-        `discretize_recording`), using `acceptance_threshold` for the spike test.
+        `event_time_window` is given in milliseconds and shades each chunk
+        classified as a spike (see `discretize_recording`), using
+        `acceptance_threshold` for the spike test.
         """
         recording = self.get_recording(index)
         time = self._time_axis()
         time, recording = self._apply_zoom(time, recording, zoom)
 
         spikes = (
-            self.discretize_recording(index, event_time_window, acceptance_threshold)
+            self.discretize_recording(
+                index,
+                int(round(event_time_window / SAMPLE_INTERVAL)),
+                acceptance_threshold,
+            )
             if event_time_window is not None
             else None
         )
@@ -544,24 +549,26 @@ class DataManager:
         return fig, axes
 
     def _time_axis(self) -> np.ndarray:
-        return np.arange(self.recording_length)
+        return np.arange(self.recording_length) * SAMPLE_INTERVAL
 
     @staticmethod
     def _apply_zoom(
-        time: np.ndarray, recording: np.ndarray, zoom: tuple[int, int] | None
+        time: np.ndarray, recording: np.ndarray, zoom: tuple[float, float] | None
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Slice `time`/`recording` to the (start, end) sample-index interval, if given."""
+        """Slice `time`/`recording` to the (start, end) millisecond interval, if given."""
         if zoom is None:
             return time, recording
         start, end = zoom
-        return time[start:end], recording[start:end]
+        start_sample = int(round(start / SAMPLE_INTERVAL))
+        end_sample = int(round(end / SAMPLE_INTERVAL))
+        return time[start_sample:end_sample], recording[start_sample:end_sample]
 
     @staticmethod
     def _shade_spike_regions(
         ax: plt.Axes,
         channel_spikes: np.ndarray,
-        event_time_window: int,
-        zoom: tuple[int, int] | None,
+        event_time_window: float,
+        zoom: tuple[float, float] | None,
         color: str,
     ) -> None:
         """Shade a background band over each chunk classified as a spike, cropped to `zoom`."""
