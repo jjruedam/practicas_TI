@@ -16,11 +16,66 @@ from typing import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from numba import njit
 
 DEFAULT_DATA_DIR = Path(__file__).parent / "DatosSinapsisArtificial-TI"
 RECORDING_LENGTH = 100000
 SPIKE_LOOKAHEAD_OVERLAP = 2
 SAMPLE_INTERVAL = 0.1
+
+
+@njit(cache=True)
+def _has_spike_kernel(values: np.ndarray, threshold: float) -> bool:
+    n = len(values)
+    for distance in range(1, n // 2 + 1):
+        for midpoint in range(distance, n - distance):
+            left = values[midpoint - distance]
+            right = values[midpoint + distance]
+            if (
+                left >= threshold
+                and right >= threshold
+                and values[midpoint] > left
+                and values[midpoint] > right
+            ):
+                return True
+    return False
+
+
+@njit(cache=True)
+def _discretize_spikes_kernel(
+    recording: np.ndarray,
+    thresholds: np.ndarray,
+    n_chunks: int,
+    window_size: int,
+    lookahead_overlap: int,
+) -> np.ndarray:
+    n_channels = recording.shape[1]
+    n_samples = recording.shape[0]
+    spikes = np.zeros((n_chunks, n_channels), dtype=np.int64)
+    for channel_index in range(n_channels):
+        threshold = thresholds[channel_index]
+        for chunk_index in range(n_chunks):
+            chunk_start = chunk_index * window_size
+            chunk_end = chunk_start + window_size
+            sample_count = window_size + min(
+                lookahead_overlap,
+                n_samples - chunk_end,
+            )
+            for distance in range(1, sample_count // 2 + 1):
+                for midpoint in range(distance, sample_count - distance):
+                    left = recording[chunk_start + midpoint - distance, channel_index]
+                    right = recording[chunk_start + midpoint + distance, channel_index]
+                    if (
+                        left >= threshold
+                        and right >= threshold
+                        and recording[chunk_start + midpoint, channel_index] > left
+                        and recording[chunk_start + midpoint, channel_index] > right
+                    ):
+                        spikes[chunk_index, channel_index] = 1
+                        break
+                if spikes[chunk_index, channel_index]:
+                    break
+    return spikes
 
 
 class DataManager:
@@ -56,7 +111,7 @@ class DataManager:
         self.n_channels: int | None = None
         # recordings shape: (n_recordings, recording_length, n_channels)
         self.recordings: np.ndarray | None = None
-        self.global_mean_max: float | None = None
+        self.global_mean_max: pd.Series | None = None
 
         self._load()
 
@@ -85,10 +140,11 @@ class DataManager:
             header=None,
             usecols=range(n_channels),
             dtype=float,
+            engine="pyarrow",
         ).to_numpy()
 
         self.recordings = self._split_into_recordings(raw)
-        self.global_mean_max= self._describe(None)["mean_max"]
+        self.global_mean_max = self._calculate_global_mean_max()
 
     def _resolve_filepath(self) -> Path:
         candidate = self.data_dir / self.filename
@@ -173,6 +229,14 @@ class DataManager:
         frames = {i: self._describe(i) for i in index}
         return pd.concat(frames, names=["recording"])
 
+    def _calculate_global_mean_max(self) -> pd.Series:
+        means = np.mean(self.recordings, axis=(0, 1))
+        minimum_recording_maxima = np.max(self.recordings, axis=1).min(axis=0)
+        return pd.Series(
+            (means + minimum_recording_maxima) / 2,
+            index=self.channel_names,
+        )
+
     def _describe(self, index: int | Sequence[int] | None) -> pd.DataFrame:
 
         if index is None:
@@ -202,16 +266,13 @@ class DataManager:
             )
         return pd.DataFrame(rows).set_index("channel")
     def __minimal_max(self, index: Sequence[int] | None, channel: str):
-
-        if index is None:
-            index = np.arange(self.n_recordings)
-
-        mini_max = np.inf
-        for i in index:
-            I_max = self.describe_recording(i)["max"][channel]
-            if I_max < mini_max:
-                mini_max = I_max
-        return mini_max
+        recordings = (
+            self.recordings
+            if index is None
+            else self.recordings[np.asarray(index, dtype=int)]
+        )
+        channel_index = self._channel_index(channel)
+        return np.max(recordings[:, :, channel_index], axis=1).min()
 
     # ------------------------------------------------------------------
     # Spike discretization
@@ -412,21 +473,22 @@ class DataManager:
                 f"event_time_window={event_time_window} exceeds recording_length={self.recording_length}."
             )
 
-        spikes = np.zeros((n_chunks, self.n_channels), dtype=int)
-        for c, name in enumerate(self.channel_names):
-            threshold = (
+        thresholds = np.asarray(
+            [
                 acceptance_threshold[name]
                 if isinstance(acceptance_threshold, pd.Series)
                 else acceptance_threshold
-            )
-            channel_full = recording[:, c]
-            channel = channel_full[: n_chunks * event_time_window]
-            for k, chunk in enumerate(channel.reshape(n_chunks, event_time_window)):
-                # Borrow a few trailing samples from the next chunk for spike detection only.
-                chunk_end = (k + 1) * event_time_window
-                lookahead = channel_full[chunk_end : chunk_end + SPIKE_LOOKAHEAD_OVERLAP]
-                spikes[k, c] = self._has_spike(np.concatenate([chunk, lookahead]), threshold)
-        return spikes
+                for name in self.channel_names
+            ],
+            dtype=float,
+        )
+        return _discretize_spikes_kernel(
+            recording,
+            thresholds,
+            n_chunks,
+            event_time_window,
+            SPIKE_LOOKAHEAD_OVERLAP,
+        )
 
     @staticmethod
     def _has_spike(values: np.ndarray, threshold: float) -> bool:
@@ -435,7 +497,7 @@ class DataManager:
         sample exceeds both (i.e. the signal crosses threshold, peaks above
         both crossing points, then falls back).
         """
-        n = len(values)
+        """n = len(values)
         for d in range(1, n // 2 + 1):
             m = np.arange(d, n - d)
             if m.size == 0:
@@ -443,7 +505,8 @@ class DataManager:
             left, right, mid = values[m - d], values[m + d], values[m]
             if np.any((left >= threshold) & (right >= threshold) & (mid > left) & (mid > right)):
                 return True
-        return False
+        return False"""
+        return bool(_has_spike_kernel(np.asarray(values), threshold))
 
     # ------------------------------------------------------------------
     # Visualization

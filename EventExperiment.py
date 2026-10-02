@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import math
 import warnings
+from collections import Counter
 from dataclasses import dataclass, field
-from itertools import combinations
+from itertools import combinations, islice
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -205,11 +206,14 @@ class EventExperiment:
                 tuple(recording[:, index].tolist()) for recording in events
             )
             channel_experiment = EventExperiment(
-                sequence=tuple(value for recording in channel_recordings for value in recording),
+                sequence=(),
                 word_length=self.word_length,
                 config=self.config,
             )
             channel_experiment.recording_sequences = channel_recordings
+            channel_experiment.sequence = tuple(
+                value for recording in channel_recordings for value in recording
+            )
             channel_experiment.channel_name = channel_name
             channel_experiment.invalidate_cache()
             self.channel_experiments[channel_name] = channel_experiment
@@ -262,11 +266,14 @@ class EventExperiment:
         for index, channel_name in enumerate(self.channel_names):
             channel_recordings = tuple(tuple(recording[:, index].tolist()) for recording in events)
             channel_experiment = EventExperiment(
-                sequence=tuple(value for recording in channel_recordings for value in recording),
+                sequence=(),
                 word_length=self.word_length,
                 config=self.config,
             )
             channel_experiment.recording_sequences = channel_recordings
+            channel_experiment.sequence = tuple(
+                value for recording in channel_recordings for value in recording
+            )
             channel_experiment.channel_name = channel_name
             channel_experiment.invalidate_cache()
             self.channel_experiments[channel_name] = channel_experiment
@@ -310,7 +317,13 @@ class EventExperiment:
             }
 
         with target.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, default=str, sort_keys=True)
+            json.dump(
+                payload,
+                handle,
+                default=str,
+                sort_keys=True,
+                indent=2
+            )
         return target
 
     @staticmethod
@@ -330,7 +343,7 @@ class EventExperiment:
         self._build_counts_and_distributions()
 
     def _build_counts_and_distributions(self) -> None:
-        self.counts = {}
+        self.counts = Counter()
         self.marginal_counts = {}
         sequences = getattr(self, "recording_sequences", (self.sequence,))
         if not any(sequences):
@@ -343,9 +356,10 @@ class EventExperiment:
 
         full_length = self.word_length + 1
         for sequence in sequences:
-            for i in range(len(sequence) - full_length + 1):
-                word = tuple(sequence[i : i + full_length])
-                self.counts[word] = self.counts.get(word, 0) + 1
+            windows = zip(
+                *(islice(sequence, offset, None) for offset in range(full_length))
+            )
+            self.counts.update(windows)
 
         self.total_count = float(sum(self.counts.values()))
         if self.total_count == 0:

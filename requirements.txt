@@ -4,3 +4,5 @@ numpy
 pandas
 ipywidgets
 pytest
+numba
+pyarrow
