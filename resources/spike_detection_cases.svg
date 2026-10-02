@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="800" viewBox="0 0 1120 800" role="img" aria-labelledby="title desc">
+  <title id="title">Casos de deteccion de spikes por ventana</title>
+  <desc id="desc">Cuatro ejemplos muestran que superar el umbral no basta: se requiere un pico por encima de dos flancos que tambien superan el umbral. El ultimo panel muestra el solapamiento de dos muestras al borde de ventana.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; fill: #202a31; }
+      .title { font-size: 27px; font-weight: 700; }
+      .rule { font-size: 16px; fill: #40515a; }
+      .panel { fill: #ffffff; stroke: #d8e0e2; stroke-width: 1.5; }
+      .panel-title { font-size: 18px; font-weight: 700; }
+      .caption { font-size: 14px; fill: #53636b; }
+      .axis { stroke: #7c898d; stroke-width: 1.2; }
+      .signal { fill: none; stroke: #176b67; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .threshold { stroke: #c27a25; stroke-width: 2; stroke-dasharray: 7 5; }
+      .threshold-label { font-size: 12px; fill: #9c5d16; }
+      .sample { fill: #176b67; stroke: #ffffff; stroke-width: 1.5; }
+      .guide { stroke: #74858b; stroke-width: 1.2; stroke-dasharray: 3 4; }
+      .pass { fill: #176b67; }
+      .fail { fill: #a3443e; }
+      .result { font-size: 14px; font-weight: 700; }
+      .window-label { font-size: 12px; fill: #52636b; }
+    </style>
+  </defs>
+  <rect width="1120" height="800" fill="#f3f6f4"/>
+  <text x="40" y="43" class="title">Cuando una ventana contiene un spike</text>
+  <text x="40" y="73" class="rule">Criterio: dos flancos ≥ umbral y una muestra central estrictamente mayor que ambos.</text>
+
+  <g transform="translate(35 100)">
+    <rect class="panel" width="510" height="315" rx="5"/>
+    <text x="22" y="34" class="panel-title">1. Sin muestras sobre el umbral</text>
+    <text x="22" y="58" class="caption">No hay cruce que pueda formar parte de un spike.</text>
+    <line x1="46" y1="92" x2="46" y2="245" class="axis"/>
+    <line x1="46" y1="245" x2="478" y2="245" class="axis"/>
+    <line x1="47" y1="145" x2="478" y2="145" class="threshold"/>
+    <text x="403" y="137" class="threshold-label">umbral</text>
+    <polyline points="48,212 96,205 145,218 194,209 243,215 292,202 341,211 390,206 438,216 478,208" class="signal"/>
+    <text x="22" y="285" class="result fail">Resultado: 0, no se detecta spike</text>
+    <text x="22" y="305" class="caption">Toda la señal permanece por debajo de θ.</text>
+  </g>
+
+  <g transform="translate(575 100)">
+    <rect class="panel" width="510" height="315" rx="5"/>
+    <text x="22" y="34" class="panel-title">2. Cruce sin pico verificable</text>
+    <text x="22" y="58" class="caption">La subida sigue al final: falta un flanco de bajada.</text>
+    <line x1="46" y1="92" x2="46" y2="245" class="axis"/>
+    <line x1="46" y1="245" x2="478" y2="245" class="axis"/>
+    <line x1="47" y1="145" x2="478" y2="145" class="threshold"/>
+    <text x="403" y="137" class="threshold-label">umbral</text>
+    <polyline points="48,218 100,211 151,205 202,184 250,160 304,146 360,130 416,112 478,96" class="signal"/>
+    <text x="22" y="285" class="result fail">Resultado: 0, no se detecta spike</text>
+    <text x="22" y="305" class="caption">Hay valores ≥ θ, pero no un pico entre dos flancos.</text>
+  </g>
+
+  <g transform="translate(35 445)">
+    <rect class="panel" width="510" height="315" rx="5"/>
+    <text x="22" y="34" class="panel-title">3. Pico con dos flancos sobre el umbral</text>
+    <text x="22" y="58" class="caption">El máximo central supera las muestras a ambos lados.</text>
+    <line x1="46" y1="92" x2="46" y2="245" class="axis"/>
+    <line x1="46" y1="245" x2="478" y2="245" class="axis"/>
+    <line x1="47" y1="145" x2="478" y2="145" class="threshold"/>
+    <text x="403" y="137" class="threshold-label">umbral</text>
+    <polyline points="48,218 100,211 145,202 180,132 224,100 270,91 316,100 360,132 398,204 440,213 478,208" class="signal"/>
+    <line x1="180" y1="132" x2="180" y2="245" class="guide"/>
+    <line x1="270" y1="91" x2="270" y2="245" class="guide"/>
+    <line x1="360" y1="132" x2="360" y2="245" class="guide"/>
+    <circle cx="180" cy="132" r="5" class="sample"/>
+    <circle cx="270" cy="91" r="6" class="sample"/>
+    <circle cx="360" cy="132" r="5" class="sample"/>
+    <text x="169" y="263" class="window-label">m-d</text>
+    <text x="266" y="263" class="window-label">m</text>
+    <text x="352" y="263" class="window-label">m+d</text>
+    <text x="22" y="292" class="result pass">Resultado: 1, spike detectado</text>
+  </g>
+
+  <g transform="translate(575 445)">
+    <rect class="panel" width="510" height="315" rx="5"/>
+    <text x="22" y="34" class="panel-title">4. Pico junto al borde de ventana</text>
+    <text x="22" y="58" class="caption">Dos muestras de la ventana siguiente completan la prueba.</text>
+    <rect x="47" y="92" width="248" height="153" fill="#e5f0ed"/>
+    <rect x="295" y="92" width="70" height="153" fill="#eef0ef"/>
+    <line x1="46" y1="92" x2="46" y2="245" class="axis"/>
+    <line x1="46" y1="245" x2="478" y2="245" class="axis"/>
+    <line x1="47" y1="145" x2="478" y2="145" class="threshold"/>
+    <text x="403" y="137" class="threshold-label">umbral</text>
+    <line x1="295" y1="88" x2="295" y2="245" stroke="#6d7e82" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="104" y="108" class="window-label">ventana actual</text>
+    <text x="298" y="108" class="window-label">2 muestras</text>
+    <polyline points="48,218 105,213 163,208 220,198 277,132 320,111 365,132 408,201 452,214 478,210" class="signal"/>
+    <circle cx="277" cy="132" r="5" class="sample"/>
+    <circle cx="320" cy="111" r="6" class="sample"/>
+    <circle cx="365" cy="132" r="5" class="sample"/>
+    <text x="22" y="285" class="result pass">Resultado: 1, el solapamiento confirma el pico</text>
+    <text x="22" y="305" class="caption">El solapamiento solo se usa durante la detección.</text>
+  </g>
+</svg>
