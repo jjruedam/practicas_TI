@@ -220,8 +220,8 @@ class EventExperiment:
 
         for left, right in combinations(range(len(self.channel_names)), 2):
             pair = (self.channel_names[left], self.channel_names[right])
-            self.pairwise_mutual_information[pair] = mutual_information(
-                events[:, :, left].ravel(), events[:, :, right].ravel()
+            self.pairwise_mutual_information[pair] = _pairwise_context_mutual_information(
+                events, left, right, self.word_length
             )
 
     def _manager_output_path(self, manager: DataManager) -> Path:
@@ -280,8 +280,8 @@ class EventExperiment:
         self.pairwise_mutual_information = {}
         for left, right in combinations(range(len(self.channel_names)), 2):
             pair = (self.channel_names[left], self.channel_names[right])
-            self.pairwise_mutual_information[pair] = mutual_information(
-                events[:, :, left].ravel(), events[:, :, right].ravel()
+            self.pairwise_mutual_information[pair] = _pairwise_context_mutual_information(
+                events, left, right, self.word_length
             )
         self.invalidate_cache()
 
@@ -602,6 +602,36 @@ def mutual_information(x: Sequence[Any] | np.ndarray, y: Sequence[Any] | np.ndar
             if p_xy > 0.0:
                 mi += p_xy * math.log2(p_xy / (p_x * p_y))
     return float(mi)
+
+
+def _pairwise_context_mutual_information(
+    events: np.ndarray,
+    left_channel: int,
+    right_channel: int,
+    context_length: int,
+) -> float:
+    left_categories: dict[tuple[Any, ...], int] = {}
+    right_categories: dict[tuple[Any, ...], int] = {}
+    left_codes: list[int] = []
+    right_codes: list[int] = []
+
+    for recording in events:
+        context_count = max(0, recording.shape[0] - context_length)
+        for start in range(context_count):
+            left_context = tuple(
+                recording[start : start + context_length, left_channel].tolist()
+            )
+            right_context = tuple(
+                recording[start : start + context_length, right_channel].tolist()
+            )
+            if left_context not in left_categories:
+                left_categories[left_context] = len(left_categories)
+            if right_context not in right_categories:
+                right_categories[right_context] = len(right_categories)
+            left_codes.append(left_categories[left_context])
+            right_codes.append(right_categories[right_context])
+
+    return mutual_information(left_codes, right_codes)
 
 
 __all__ = [

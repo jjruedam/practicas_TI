@@ -9,15 +9,16 @@
   - `P(s | w)` por normalización,
   - `P(w' | w)` por encadenamiento,
   - entropías de bloque y entropía condicional,
-  - métodos de consulta por valor puntual y por distribución completa.
-- `mutual_information`: función para calcular `I(X; Y)` entre dos canales del mismo origen usando la distribución conjunta de eventos alineados.
+  - métodos de consulta por valor puntual y por distribución completa;
+  - información mutua entre contextos alineados de longitud `L` para cada pareja de canales.
+- `mutual_information`: función para calcular `I(X; Y)` a partir de observaciones categóricas alineadas. Para dos canales, `EventExperiment` codifica cada contexto completo de longitud `L` como una categoría antes de estimarla.
 
 ## Flujo de datos
 
 1. La señal cruda se discretiza según `SimpleEventConfig`: `window` y `thresholds` se aplican en `DataManager`, y `stride` selecciona chunks de salida. La discretización disponible es `spike_detection` sobre eventos binarios.
-2. Para un `DataManager`, `EventExperiment` conserva todas las grabaciones y canales, construye estadísticas por canal y calcula la información mutua para cada pareja de canales alineados. Los n-gramas se cuentan por grabación y nunca cruzan límites entre ensayos.
+2. Para un `DataManager`, `EventExperiment` conserva todas las grabaciones y canales, construye estadísticas por canal y calcula la información mutua entre contextos alineados de longitud `L` para cada pareja de canales. Los n-gramas y contextos se cuentan por grabación y nunca cruzan límites entre ensayos.
 3. Para una secuencia explícita, `EventExperiment` construye la tabla de conteos de n-gramas solapados de longitud `L+1`.
-4. Todas las distribuciones y métricas se derivan de las tablas de conteo.
+4. Las distribuciones y métricas de bloque se derivan de las tablas de conteo; la información mutua se estima con las frecuencias empíricas de los pares de contextos alineados.
 5. Las secuencias explícitas se guardan mediante `save(path)`. La construcción con `manager=` guarda automáticamente en `data_dir/experiments`, con nombre basado en origen, ventana y longitud de palabra; colisiones se resuelven con sufijos `_(n)`. `load()` reconstruye las métricas a partir de los eventos guardados.
 
 ## Fórmulas y propiedades estadísticas
@@ -54,19 +55,27 @@ las ventanas solapadas `w = (x_t, ..., x_(t+L))` de longitud `L+1`. Si
   P(x_0,\ldots,x_{n-1}) = P(x_0,\ldots,x_{L-1})
   \prod_{t=L}^{n-1}P(x_t\mid x_{t-L},\ldots,x_{t-1})
   $$
-- Información mutua alineada entre canales:
+- Información mutua entre contextos alineados de longitud `L`:
 
   $$
-  I(X;Y) = \sum_{x,y}\hat{p}(x,y)
-  \log_2\frac{\hat{p}(x,y)}{\hat{p}(x)\hat{p}(y)}
+  X_t^{(L)} = (X_t,\ldots,X_{t+L-1}), \qquad
+  Y_t^{(L)} = (Y_t,\ldots,Y_{t+L-1})
   $$
+
+  $$
+  I(X^{(L)};Y^{(L)}) = \sum_{u,v}\hat{p}(u,v)
+  \log_2\frac{\hat{p}(u,v)}{\hat{p}(u)\hat{p}(v)}
+  $$
+
+  Los contextos se toman en las posiciones con una ventana completa de longitud `L+1`, de modo que comparten el soporte de los conteos de bloques.
 
 Estas definiciones cumplen la regla de la cadena para entropía y probabilidad;
 las distribuciones se normalizan a uno cuando `N > 0`. Para variables discretas,
  $0 \leq H(X) \leq \log_2|\operatorname{supp}(X)|$ y $H(X\mid Y) \geq 0$.
-La información mutua cumple $I(X;Y)=H(X)-H(X\mid Y)=H(Y)-H(Y\mid X)$, es no
+La información mutua de contextos cumple $I(X^{(L)};Y^{(L)})=H(X^{(L)})-H(X^{(L)}\mid Y^{(L)})$, es no
 negativa, vale cero si y solo si las variables son independientes y no supera
-$\min(H(X),H(Y))$; para dos copias de la misma variable, $I(X;X)=H(X)$.
+$\min(H(X^{(L)}),H(Y^{(L)}))$; para dos copias del mismo contexto,
+$I(X^{(L)};X^{(L)})=H(X^{(L)})$.
 Las estimaciones son de frecuencia
 (plug-in), no corregidas por sesgo de muestra; las ventanas solapadas tampoco
 son observaciones independientes. Las probabilidades de eventos no observados
