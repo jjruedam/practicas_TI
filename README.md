@@ -10,7 +10,7 @@ El STNS es un generador central de patrones (CPG, por sus siglas en inglés) [re
 
 > Pendiente: definir los temas que se desarrollarán en esta sección.
 
-### Neurociencia, STNS y CPG
+### Modelos Neuronales, STNS y CPG
 
 ### Teoría de la información
 
@@ -29,6 +29,9 @@ El primer método, la detección de eventos, parte de la hipótesis de que la in
 La discretización permite construir n-gramas para calcular la entropía y la información mutua. El análisis se centra en la evolución de la entropía de bloque de cada canal y de la información mutua entre DV y LP, por separado para las tres fuentes de datos, a medida que aumenta la longitud de los n-gramas.
 
 ### Descripción de los datos
+
+> Pendiente:
+
 
 ![Registro original de ejemplo](resources/raw_record.png)
 
@@ -90,6 +93,55 @@ Esta verificación es importante porque la discretización convierte la señal e
 
 
 ### N-gramas e información mutua
+
+El análisis de detección de eventos parte de la hipótesis de que el ritmo del generador central de patrones (CPG) se establece mediante la comunicación entre las neuronas del STNS, en la que participan DV y LP. Una representación binaria de cada ventana conserva si hubo o no un spike, pero no describe el orden de los eventos ni posibles dependencias temporales. Para estudiar esos patrones, agrupamos símbolos consecutivos en palabras de longitud $N$, también llamadas $N$-gramas.
+
+Sea $X^N$ la palabra de DV y $Y^N$ la palabra de LP observadas en el mismo conjunto de $N$ ventanas consecutivas. Para una longitud fija $N$, estimamos sus probabilidades a partir de las frecuencias relativas en todas las posiciones válidas del registro. Si el registro discretizado tiene longitud $T$, hay $T-N+1$ palabras posibles por canal. Definimos el conteo conjunto como
+
+$$
+C_N(x_N,y_N) = \sum_{t=1}^{T-N+1}
+  \mathbb{1}\!\left[x_N^{(t)}=x_N \,\wedge\, y_N^{(t)}=y_N\right],
+$$
+
+de modo que
+
+$$
+\hat{p}_N(x_N,y_N) = \frac{C_N(x_N,y_N)}{T-N+1}, \qquad
+\hat{p}_N(x_N) = \sum_{y_N}\hat{p}_N(x_N,y_N), \qquad
+\hat{p}_N(y_N) = \sum_{x_N}\hat{p}_N(x_N,y_N).
+$$
+
+Estas frecuencias relativas son estimaciones empíricas de las probabilidades; al sustituirlas en la definición de información mutua obtenemos el estimador de frecuencias (o *plug-in*):
+
+$$
+\hat{I}_N(DV,LP) = \sum_{x_N,\,y_N}\hat{p}_N(x_N,y_N)\,
+  \log_2\frac{\hat{p}_N(x_N,y_N)}{\hat{p}_N(x_N)\,\hat{p}_N(y_N)}
+$$
+
+La suma se toma sobre las palabras observadas con probabilidad conjunta positiva. Las palabras se construyen sincronizadamente en ambos canales:
+
+$$
+x_N^{(t)} = \left(x_t,\,x_{t+1},\,\dots,\,x_{t+N-1}\right), \qquad
+y_N^{(t)} = \left(y_t,\,y_{t+1},\,\dots,\,y_{t+N-1}\right)
+$$
+
+Esta cantidad depende también de la ventana temporal, pues esta determina la discretización de los datos. Como usamos una misma ventana al comparar los experimentos, omitimos ese parámetro en la notación. Al estar alineadas las palabras, la información mutua es simétrica: $\hat{I}_N(DV,LP)=\hat{I}_N(LP,DV)$.
+
+En términos de las distribuciones verdaderas, la información mutua de las palabras no disminuye al aumentar $N$. En efecto, $X^N$ y $Y^N$ se obtienen como prefijos de $X^{N+1}$ y $Y^{N+1}$; añadir variables a cualquiera de los dos vectores no puede reducir la información mutua. Por tanto,
+
+$$
+I_{N+1}(DV,LP) \geq I_N(DV,LP).
+$$
+
+La desigualdad puede ser una igualdad si los símbolos añadidos no aportan información nueva. Esta propiedad se refiere a las distribuciones verdaderas. En un registro finito, las frecuencias se vuelven a calcular para cada longitud y el número de posiciones válidas disminuye de $T-N+1$ a $T-N$; por variabilidad muestral, el estimador $\hat{I}_N$ no tiene por qué crecer en cada paso. Además, al aumentar $N$ crece rápidamente el número de palabras posibles, por lo que algunas aparecen pocas veces o no aparecen; las estimaciones para longitudes grandes deben interpretarse con cautela.
+
+La información mutua total suele crecer con la longitud porque cada palabra contiene más símbolos. Para comparar cuánto acoplamiento informativo corresponde, en promedio, a cada ventana, consideramos también la cantidad normalizada
+
+$$
+\frac{\hat{I}_N(DV,LP)}{N},
+$$
+
+expresada en bits por ventana. Esta normalización permite comparar palabras de distintas longitudes, pero no tiene por qué ser creciente: la información total puede aumentar mientras que su promedio por símbolo disminuye. Así, $\hat{I}_N$ mide la información conjunta acumulada en palabras de longitud $N$, mientras que $\hat{I}_N/N$ describe su rendimiento medio por ventana.
 
 ### Segunda discretización
 
