@@ -135,9 +135,7 @@ class EventExperiment:
         self.marginal_counts: dict[tuple[Any, ...], int] = {}
         self.total_count = 0
         self.word_distribution: WordDistribution = WordDistribution()
-        self.block_entropy = 0.0
-        self.block_entropy_plus_one = 0.0
-        self._entropy_conditional = 0.0
+        self.block_entropy = 0.0        
         self._build_counts_and_distributions()
         if manager is not None:
             self.output_path = self._manager_output_path(manager)
@@ -230,8 +228,8 @@ class EventExperiment:
             self.pairwise_mutual_information[pair] = mi
 
             # Entropías de cada canal
-            h_left = self.channel_experiments[ch_left].block_entropy_plus_one
-            h_right = self.channel_experiments[ch_right].block_entropy_plus_one
+            h_left = self.channel_experiments[ch_left].block_entropy
+            h_right = self.channel_experiments[ch_right].block_entropy
 
             # Guardar un diccionario explícito por nombre de canal en vez de una tupla por posiciones
             self.pairwise_normalized_mutual_information[pair] = {
@@ -262,57 +260,9 @@ class EventExperiment:
                 config=config,
             )
             experiment.channel_names = list(payload["channel_names"])
-            experiment._restore_manager_recordings(payload["recordings"])
             return experiment
         sequence = payload.get("sequence", [])
         return cls(sequence, word_length=config.word_length, config=config)
-
-    def _restore_manager_recordings(self, recordings: Sequence[Any]) -> None:
-        events = np.asarray(recordings)
-        if events.ndim != 3 or events.shape[2] != len(self.channel_names):
-            raise ValueError("Saved manager experiment has invalid recording dimensions.")
-        self.is_manager_backed = True
-        self.manager_recordings = events
-        self.recording_sequences = tuple(
-            tuple(tuple(row) for row in recording.tolist()) for recording in events
-        )
-        self.sequence = tuple(row for recording in self.recording_sequences for row in recording)
-        self.channel_experiments = {}
-        for index, channel_name in enumerate(self.channel_names):
-            channel_recordings = tuple(tuple(recording[:, index].tolist()) for recording in events)
-            channel_experiment = EventExperiment(
-                sequence=(),
-                word_length=self.word_length,
-                config=self.config,
-            )
-            channel_experiment.recording_sequences = channel_recordings
-            channel_experiment.sequence = tuple(
-                value for recording in channel_recordings for value in recording
-            )
-            channel_experiment.channel_name = channel_name
-            channel_experiment.invalidate_cache()
-            self.channel_experiments[channel_name] = channel_experiment
-        self.pairwise_mutual_information = {}
-        for left, right in combinations(range(len(self.channel_names)), 2):
-            ch_left = self.channel_names[left]
-            ch_right = self.channel_names[right]
-            pair = (ch_left, ch_right)
-
-            mi = _pairwise_context_mutual_information(
-                events, left, right, self.word_length
-            )
-            self.pairwise_mutual_information[pair] = mi
-
-            # Entropías de cada canal
-            h_left = self.channel_experiments[ch_left].block_entropy_plus_one
-            h_right = self.channel_experiments[ch_right].block_entropy_plus_one
-
-            # Guardar un diccionario explícito por nombre de canal en vez de una tupla por posiciones
-            self.pairwise_normalized_mutual_information[pair] = {
-                ch_left: float(mi / h_left) if h_left > 0 else 0.0,
-                ch_right: float(mi / h_right) if h_right > 0 else 0.0,
-            }
-        self.invalidate_cache()
 
     def save(self, path: str | Path) -> Path:
         target = Path(path)
@@ -320,12 +270,6 @@ class EventExperiment:
 
         if self.is_manager_backed:
             payload = {
-                "version": 2,
-                "kind": "manager",
-                "config": self.config.to_dict(),
-                "channel_names": self.channel_names,
-                "recordings": self.manager_recordings.tolist(),
-                "counts": self._serialize_counts(self.counts),
                 "metrics": self._metrics_payload(self),
                 "channel_metrics": {
                     name: self._metrics_payload(experiment)
@@ -344,14 +288,19 @@ class EventExperiment:
                     for pair, nmi_dict in self.pairwise_normalized_mutual_information.items()
                     for ch_left, ch_right in [pair]
                 ],
+                "kind": "manager",
+                "config": self.config.to_dict(),
+                "channel_names": self.channel_names,
+                "counts": self._serialize_counts(self.counts),
+                "version": 3,
             }
         else:
             payload = {
-                "version": 1,
+                "metrics": self._metrics_payload(self),
                 "config": self.config.to_dict(),
                 "sequence": list(self.sequence),
                 "counts": self._serialize_counts(self.counts),
-                "metrics": self._metrics_payload(self),
+                "version": 2,
             }
 
         with target.open("w", encoding="utf-8") as handle:
@@ -359,7 +308,7 @@ class EventExperiment:
                 payload,
                 handle,
                 default=str,
-                sort_keys=True,
+                sort_keys=False,
                 indent=2
             )
         return target
@@ -368,8 +317,6 @@ class EventExperiment:
     def _metrics_payload(experiment: "EventExperiment") -> dict[str, float]:
         return {
             "block_entropy": experiment.block_entropy,
-            "block_entropy_plus_one": experiment.block_entropy_plus_one,
-            "entropy_conditional": experiment.entropy_conditional,
             "total_count": experiment.total_count,
         }
 
@@ -387,12 +334,10 @@ class EventExperiment:
         if not any(sequences):
             self.word_distribution = WordDistribution()
             self.block_entropy = 0.0
-            self.block_entropy_plus_one = 0.0
-            self._entropy_conditional = 0.0
             self.total_count = 0
             return
 
-        full_length = self.word_length + 1
+        full_length = self.word_length
         for sequence in sequences:
             windows = zip(
                 *(islice(sequence, offset, None) for offset in range(full_length))
@@ -403,8 +348,6 @@ class EventExperiment:
         if self.total_count == 0:
             self.word_distribution = WordDistribution()
             self.block_entropy = 0.0
-            self.block_entropy_plus_one = 0.0
-            self._entropy_conditional = 0.0
             return
 
         for key, value in self.counts.items():
@@ -414,9 +357,7 @@ class EventExperiment:
             {key: value / self.total_count for key, value in self.marginal_counts.items()}
         )
 
-        self.block_entropy = self._entropy_from_distribution(self.word_distribution)
-        self.block_entropy_plus_one = self._entropy_from_counts(self.counts)
-        self._entropy_conditional = self.block_entropy_plus_one - self.block_entropy
+        self.block_entropy = self._entropy_from_counts(self.counts)
 
     @staticmethod
     def _entropy_from_distribution(distribution: Mapping[tuple[Any, ...], float]) -> float:
@@ -562,7 +503,11 @@ class EventExperiment:
 
     @property
     def entropy_plus_one(self) -> float:
-        return self.block_entropy_plus_one
+        return self.block_entropy
+
+    @property
+    def block_entropy_plus_one(self) -> float:
+        return self.block_entropy
 
     @property
     def entropy_conditional(self) -> float:
@@ -659,8 +604,8 @@ def normalized_mutual_information(self, ch1: str, ch2: str) -> tuple[float, floa
         mi = mutual_information(seq1, seq2)
 
     # 2. Reutilizar H(X) y H(Y) que YA FUERON CALCULADAS al construir cada canal
-    h1 = self.channel_experiments[ch1].block_entropy_plus_one
-    h2 = self.channel_experiments[ch2].block_entropy_plus_one
+    h1 = self.channel_experiments[ch1].block_entropy
+    h2 = self.channel_experiments[ch2].block_entropy
 
     nmi_1 = mi / h1 if h1 > 0 else 0.0
     nmi_2 = mi / h2 if h2 > 0 else 0.0
@@ -679,7 +624,7 @@ def _pairwise_context_mutual_information(
     right_codes: list[int] = []
 
     for recording in events:
-        context_count = max(0, recording.shape[0] - context_length)
+        context_count = max(0, recording.shape[0] - context_length + 1)
         for start in range(context_count):
             left_context = tuple(
                 recording[start : start + context_length, left_channel].tolist()

@@ -111,7 +111,15 @@ $$
 \hat{p}_N(y_N) = \sum_{x_N}\hat{p}_N(x_N,y_N).
 $$
 
-Estas frecuencias relativas son estimaciones empíricas de las probabilidades; al sustituirlas en la definición de información mutua obtenemos el estimador de frecuencias (o *plug-in*):
+Estas frecuencias relativas son estimaciones empíricas de las probabilidades; al sustituirlas en la definición de información mutua obtenemos el estimador de frecuencias:
+
+Para cada canal, la entropía de las palabras de longitud $N$ es
+
+$$
+H_N(X) = -\sum_{x_N} \hat{p}_N(x_N)\log_2\hat{p}_N(x_N).
+$$
+
+En los resultados, `block_entropy` representa $H_N(X)$. Así, las etiquetas describen la longitud configurada `word_length = N`.
 
 $$
 \hat{I}_N(DV,LP) = \sum_{x_N,\,y_N}\hat{p}_N(x_N,y_N)\,
@@ -127,6 +135,8 @@ $$
 
 Esta cantidad depende también de la ventana temporal, pues esta determina la discretización de los datos. Como usamos una misma ventana al comparar los experimentos, omitimos ese parámetro en la notación. Al estar alineadas las palabras, la información mutua es simétrica: $\hat{I}_N(DV,LP)=\hat{I}_N(LP,DV)$.
 
+Como las entropías marginales y la información mutua se calculan a partir de las mismas palabras de longitud $N$, se cumple $0 \leq \hat{I}_N(DV,LP) \leq \min(H_N(DV), H_N(LP))$.
+
 En términos de las distribuciones verdaderas, la información mutua de las palabras no disminuye al aumentar $N$. En efecto, $X^N$ y $Y^N$ se obtienen como prefijos de $X^{N+1}$ y $Y^{N+1}$; añadir variables a cualquiera de los dos vectores no puede reducir la información mutua. Por tanto,
 
 $$
@@ -134,6 +144,8 @@ I_{N+1}(DV,LP) \geq I_N(DV,LP).
 $$
 
 La desigualdad puede ser una igualdad si los símbolos añadidos no aportan información nueva. Esta propiedad se refiere a las distribuciones verdaderas. En un registro finito, las frecuencias se vuelven a calcular para cada longitud y el número de posiciones válidas disminuye de $T-N+1$ a $T-N$; por variabilidad muestral, el estimador $\hat{I}_N$ no tiene por qué crecer en cada paso. Además, al aumentar $N$ crece rápidamente el número de palabras posibles, por lo que algunas aparecen pocas veces o no aparecen; las estimaciones para longitudes grandes deben interpretarse con cautela.
+
+> Pendiente: Corregir el desarrollo de la normalización
 
 La información mutua total suele crecer con la longitud porque cada palabra contiene más símbolos. Para comparar cuánto acoplamiento informativo corresponde, en promedio, a cada ventana, consideramos también la cantidad normalizada
 
