@@ -25,23 +25,6 @@ SAMPLE_INTERVAL = 0.1
 
 
 @njit(cache=True)
-def _has_spike_kernel(values: np.ndarray, threshold: float) -> bool:
-    n = len(values)
-    for distance in range(1, n // 2 + 1):
-        for midpoint in range(distance, n - distance):
-            left = values[midpoint - distance]
-            right = values[midpoint + distance]
-            if (
-                left >= threshold
-                and right >= threshold
-                and values[midpoint] > left
-                and values[midpoint] > right
-            ):
-                return True
-    return False
-
-
-@njit(cache=True)
 def _discretize_spikes_kernel(
     recording: np.ndarray,
     thresholds: np.ndarray,
@@ -49,6 +32,52 @@ def _discretize_spikes_kernel(
     window_size: int,
     lookahead_overlap: int,
 ) -> np.ndarray:
+
+    """Detecta si hay un spike en cada chunk y canal de una grabación.
+
+    Divide la grabación en ``n_chunks`` ventanas consecutivas de
+    ``window_size`` muestras y, para cada ventana y canal, determina si
+    contiene al menos un spike. Es la versión compilada con Numba de
+    ``_has_spike``, aplicada a todos los chunks y canales.
+
+    Un spike se define como un par de muestras ``t1 < t2``, ambas
+    ``>= threshold``, tales que la muestra en el punto medio
+    ``(t1 + t2) / 2`` es estrictamente mayor que ambas. Es decir, la señal
+    supera el umbral, alcanza un pico por encima de los dos puntos de cruce
+    y vuelve a bajar. Los puntos ``t1`` y ``t2`` equidistan del pico en una
+    distancia ``distance``: ``t1 = midpoint - distance`` y
+    ``t2 = midpoint + distance``.
+
+    Cada chunk se evalúa sobre sus ``window_size`` muestras más hasta
+    ``lookahead_overlap`` muestras adicionales del chunk siguiente
+    (limitado por el final de la grabación), de modo que un spike que cruce
+    la frontera entre dos chunks no se pierda. Los índices ``midpoint``,
+    ``midpoint - distance`` y ``midpoint + distance`` siempre quedan dentro
+    de esa ventana extendida.
+
+    Parameters
+    ----------
+    recording : np.ndarray
+        Señal de entrada con forma ``(n_samples, n_channels)``.
+    thresholds : np.ndarray
+        Umbral por canal, con forma ``(n_channels,)``.
+    n_chunks : int
+        Número de chunks (ventanas) en los que se divide la grabación.
+    window_size : int
+        Número de muestras de cada chunk (sin contar el solapamiento).
+    lookahead_overlap : int
+        Número máximo de muestras adicionales, tomadas del chunk siguiente,
+        que se incluyen en la evaluación de cada chunk. En el último chunk
+        se recorta automáticamente para no salirse de la grabación.
+
+    Returns
+    -------
+    np.ndarray
+        Matriz de enteros (``int64``) con forma ``(n_chunks, n_channels)``.
+        El valor es ``1`` si el chunk contiene un spike en ese canal y ``0``
+        en caso contrario."""
+
+    
     n_channels = recording.shape[1]
     n_samples = recording.shape[0]
     spikes = np.zeros((n_chunks, n_channels), dtype=np.int64)
@@ -489,24 +518,6 @@ class DataManager:
             event_time_window,
             SPIKE_LOOKAHEAD_OVERLAP,
         )
-
-    @staticmethod
-    def _has_spike(values: np.ndarray, threshold: float) -> bool:
-        """
-        Whether `values` contains t1 < t2, both >= threshold, whose midpoint
-        sample exceeds both (i.e. the signal crosses threshold, peaks above
-        both crossing points, then falls back).
-        """
-        """n = len(values)
-        for d in range(1, n // 2 + 1):
-            m = np.arange(d, n - d)
-            if m.size == 0:
-                break
-            left, right, mid = values[m - d], values[m + d], values[m]
-            if np.any((left >= threshold) & (right >= threshold) & (mid > left) & (mid > right)):
-                return True
-        return False"""
-        return bool(_has_spike_kernel(np.asarray(values), threshold))
 
     # ------------------------------------------------------------------
     # Visualization

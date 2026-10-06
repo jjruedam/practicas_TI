@@ -360,14 +360,6 @@ class EventExperiment:
         self.block_entropy = self._entropy_from_counts(self.counts)
 
     @staticmethod
-    def _entropy_from_distribution(distribution: Mapping[tuple[Any, ...], float]) -> float:
-        total = 0.0
-        for prob in distribution.values():
-            if prob > 0:
-                total -= prob * math.log2(prob)
-        return total
-
-    @staticmethod
     def _entropy_from_counts(counts: Mapping[tuple[Any, ...], int]) -> float:
         total = sum(counts.values())
         if total == 0:
@@ -413,148 +405,11 @@ class EventExperiment:
                 total += count
         return 0.0 if self.total_count == 0 else total / self.total_count
 
-    def prob(self, *args: Any) -> float:
-        if len(args) == 1:
-            word = args[0]
-        elif len(args) == 2:
-            _, word = args
-        else:
-            raise TypeError("prob expects (word) or (channel, word)")
-
-        word = self._normalize_word(word)
-        if not word:
-            return 1.0
-
-        if len(word) < self.word_length:
-            return self._marginal_prob(word)
-        if len(word) == self.word_length:
-            return float(self.word_distribution.get(word, 0.0))
-        return self.chain_prob(word)
-
-    def cond_prob(self, *args: Any) -> float:
-        if len(args) == 2:
-            symbol, word = args
-        elif len(args) == 3:
-            _, symbol, word = args
-        else:
-            raise TypeError("cond_prob expects (s, word) or (channel, s, word)")
-
-        symbol = self._normalize_word(symbol)
-        if not symbol:
-            return 0.0
-        symbol = (symbol[0],)
-
-        context = self._normalize_word(word)
-        if len(context) > self.word_length:
-            context = context[-self.word_length :]
-
-        if len(context) < self.word_length:
-            numerator = 0.0
-            denominator = 0.0
-            for full_word, count in self.counts.items():
-                if len(full_word) < len(context) + 1:
-                    continue
-                if full_word[: len(context)] == context:
-                    denominator += count
-                    if full_word[len(context)] == symbol[0]:
-                        numerator += count
-            return 0.0 if denominator == 0 else numerator / denominator
-
-        numerator = 0.0
-        denominator = self.marginal_counts.get(context, 0)
-        for full_word, count in self.counts.items():
-            if full_word[:-1] == context and full_word[-1] == symbol[0]:
-                numerator += count
-        return 0.0 if denominator == 0 else numerator / denominator
-
-    def chain_prob(self, *args: Any) -> float:
-        if len(args) == 1:
-            sequence = args[0]
-        elif len(args) == 2:
-            _, sequence = args
-        else:
-            raise TypeError("chain_prob expects (sequence) or (channel, sequence)")
-
-        seq = self._normalize_sequence(sequence)
-        if not seq:
-            return 1.0
-
-        if len(seq) < self.word_length:
-            return self._marginal_prob(seq)
-        if len(seq) == self.word_length:
-            return float(self.word_distribution.get(seq, 0.0))
-
-        probability = self.prob(seq[: self.word_length])
-        if probability == 0:
-            return 0.0
-
-        for index in range(self.word_length, len(seq)):
-            context = seq[index - self.word_length : index]
-            next_symbol = seq[index]
-            conditional = self.cond_prob(next_symbol, context)
-            if conditional == 0.0:
-                return 0.0
-            probability *= conditional
-        return probability
-
-    @property
-    def entropy_block(self) -> float:
-        return self.block_entropy
-
-    @property
-    def entropy_plus_one(self) -> float:
-        return self.block_entropy
-
-    @property
-    def block_entropy_plus_one(self) -> float:
-        return self.block_entropy
-
-    @property
-    def entropy_conditional(self) -> float:
-        return self._entropy_conditional
-
-    @property
-    def transition_states(self) -> tuple[tuple[Any, ...], ...]:
-        if self.word_length == 0:
-            return ()
-        states = {
-            state
-            for word in self.counts
-            for state in (word[:-1], word[1:])
-        }
-        return tuple(sorted(states, key=lambda x: tuple(str(v) for v in x)))
-
-    @property
-    def transition_matrix(self) -> np.ndarray:
-        states = self.transition_states
-        if not states:
-            return np.zeros((0, 0), dtype=float)
-
-        state_index = {state: i for i, state in enumerate(states)}
-        trans = np.zeros((len(states), len(states)), dtype=float)
-        row_totals = np.zeros(len(states), dtype=float)
-        for word, count in self.counts.items():
-            source = state_index[word[:-1]]
-            target = state_index[word[1:]]
-            trans[source, target] += count
-            row_totals[source] += count
-        nonzero_rows = row_totals > 0
-        trans[nonzero_rows] /= row_totals[nonzero_rows, np.newaxis]
-        return trans
-
     def __repr__(self) -> str:
         return (
             f"EventExperiment(word_length={self.word_length}, "
             f"n_words={len(self.counts)}, total_count={self.total_count})"
         )
-
-
-def information_event(sequence: Sequence[Any] | np.ndarray, word_length: int = 1, config=None) -> EventExperiment:
-    return EventExperiment(sequence, word_length=word_length, config=config)
-
-
-class InformationEvent(EventExperiment):
-    pass
 
 
 def mutual_information(x: Sequence[Any] | np.ndarray, y: Sequence[Any] | np.ndarray) -> float:
@@ -586,31 +441,6 @@ def mutual_information(x: Sequence[Any] | np.ndarray, y: Sequence[Any] | np.ndar
                 mi += p_xy * math.log2(p_xy / (p_x * p_y))
     return float(mi)
 
-
-
-def normalized_mutual_information(self, ch1: str, ch2: str) -> tuple[float, float]:
-    """Calcula (I(ch1; ch2) / H(ch1), I(ch1; ch2) / H(ch2)) usando las entropías ya calculadas."""
-    if ch1 not in self.channel_experiments or ch2 not in self.channel_experiments:
-        raise ValueError(f"Los canales {ch1} y {ch2} deben existir en channel_experiments.")
-
-    # 1. Obtener I(X; Y)
-    pair = (ch1, ch2) if (ch1, ch2) in self.pairwise_mutual_information else (ch2, ch1)
-    mi = self.pairwise_mutual_information.get(pair)
-    
-    if mi is None:
-        # Si no estuviera precalculado en el diccionario pairwise:
-        seq1 = self.channel_experiments[ch1].sequence
-        seq2 = self.channel_experiments[ch2].sequence
-        mi = mutual_information(seq1, seq2)
-
-    # 2. Reutilizar H(X) y H(Y) que YA FUERON CALCULADAS al construir cada canal
-    h1 = self.channel_experiments[ch1].block_entropy
-    h2 = self.channel_experiments[ch2].block_entropy
-
-    nmi_1 = mi / h1 if h1 > 0 else 0.0
-    nmi_2 = mi / h2 if h2 > 0 else 0.0
-
-    return float(nmi_1), float(nmi_2)
 
 def _pairwise_context_mutual_information(
     events: np.ndarray,
@@ -645,10 +475,7 @@ def _pairwise_context_mutual_information(
 __all__ = [
     "EventConfig",
     "EventExperiment",
-    "InformationEvent",
     "SimpleEventConfig",
     "WordDistribution",
-    "information_event",
     "mutual_information",
-    "normalized_mutual_information",
 ]
