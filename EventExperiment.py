@@ -1,3 +1,11 @@
+"""Build and persist information statistics for discrete event sequences.
+
+Sequences can be supplied directly or derived from a :class:`DataManager` by
+detecting spikes in fixed time windows. The resulting experiment counts
+overlapping words, computes their block entropy, and can compare channels
+using mutual information.
+"""
+
 from __future__ import annotations
 
 import json
@@ -15,15 +23,34 @@ import pandas as pd
 from DataManager import DataManager, SAMPLE_INTERVAL
 
 class WordDistribution(dict):
-    """Dictionary-like distribution whose values() returns a NumPy array."""
+    """Dictionary-like probability distribution with array-valued ``values()``."""
 
     def values(self):
+        """Return distribution probabilities as a NumPy array."""
         return np.asarray(list(super().values()), dtype=float)
 
 
 @dataclass
 class SimpleEventConfig:
-    """Serializable simple-event configuration; `window` is in milliseconds."""
+    """Configuration for converting continuous signals into simple events.
+
+    Parameters
+    ----------
+    name : str
+        Identifier for the simple-event configuration.
+    window : float
+        Event window in milliseconds.
+    stride : int
+        Number of discretized windows to skip between retained events.
+    discretization : str
+        Discretization method. ``DataManager`` experiments support
+        ``"spike_detection"``.
+    thresholds : tuple of float
+        Optional spike-detection threshold, either a single value shared by
+        all channels or one value per channel.
+    version : int
+        Configuration format version.
+    """
 
     name: str = "simple_event"
     window: float = 1
@@ -33,6 +60,7 @@ class SimpleEventConfig:
     version: int = 1
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of this configuration."""
         return {
             "name": self.name,
             "window": self.window,
@@ -44,6 +72,7 @@ class SimpleEventConfig:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SimpleEventConfig":
+        """Create a configuration from a mapping, applying field defaults."""
         return cls(
             name=str(data.get("name", "simple_event")),
             window=float(data.get("window", 1)),
@@ -56,7 +85,21 @@ class SimpleEventConfig:
 
 @dataclass
 class EventConfig:
-    """Configuration for a channel experiment."""
+    """Configuration for an event experiment.
+
+    Parameters
+    ----------
+    word_length : int
+        Number of consecutive simple events in each counted word.
+    simple_event : SimpleEventConfig
+        Settings used to derive simple events from continuous data.
+    source_name : str or None
+        Optional name of the source data file.
+    version : int
+        Configuration format version.
+    notes : str
+        Optional free-form experiment notes.
+    """
 
     word_length: int = 1
     simple_event: SimpleEventConfig = field(default_factory=SimpleEventConfig)
@@ -65,6 +108,7 @@ class EventConfig:
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation of this configuration."""
         return {
             "word_length": self.word_length,
             "simple_event": self.simple_event.to_dict(),
@@ -75,6 +119,7 @@ class EventConfig:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "EventConfig":
+        """Create a configuration from a mapping, applying field defaults."""
         simple_event_data = data.get("simple_event", {})
         return cls(
             word_length=int(data.get("word_length", 1)),
@@ -86,7 +131,32 @@ class EventConfig:
 
 
 class EventExperiment:
-    """Compute Markov-style information-event statistics from a simple-event stream."""
+    """Compute word statistics and information measures for event sequences.
+
+    An experiment can be initialized from one sequence or from a
+    :class:`DataManager`. In the latter case, each channel gets its own
+    experiment and pairwise mutual information is computed between channels.
+    Words are formed from overlapping windows of ``word_length`` events;
+    separate recordings are counted independently.
+
+    Parameters
+    ----------
+    sequence : sequence or np.ndarray, optional
+        One-dimensional event sequence. Ignored when ``manager`` is supplied.
+    manager : DataManager, optional
+        Source of continuous recordings to discretize and analyze.
+    word_length : int, optional
+        Number of events per word. Defaults to the value in ``config`` or 1.
+    config : EventConfig or mapping, optional
+        Experiment and simple-event settings. A mapping is converted to an
+        :class:`EventConfig`.
+
+    Raises
+    ------
+    ValueError
+        If ``word_length`` is less than one, neither input source is supplied,
+        or the manager's simple-event settings or data are invalid.
+    """
 
     def __init__(
         self,
@@ -142,6 +212,12 @@ class EventExperiment:
             self.save(self.output_path)
 
     def _initialize_from_manager(self, manager: DataManager) -> None:
+        """Discretize manager recordings and calculate per-channel metrics.
+
+        The simple-event settings determine the discretization window,
+        stride, and thresholds. Recording boundaries are preserved when
+        building sequences and when calculating pairwise context information.
+        """
         simple_event = self.config.simple_event
         if simple_event.window < SAMPLE_INTERVAL:
             raise ValueError(f"simple_event.window must be >= {SAMPLE_INTERVAL} ms.")
@@ -238,6 +314,7 @@ class EventExperiment:
             }
 
     def _manager_output_path(self, manager: DataManager) -> Path:
+        """Choose a non-existing JSON path under the manager's experiments folder."""
         directory = Path(manager.data_dir) / "experiments"
         source_stem = Path(manager.filename).stem
         stem = f"{source_stem}_window-{self.config.simple_event.window:g}_word-{self.word_length}"
@@ -250,6 +327,19 @@ class EventExperiment:
 
     @classmethod
     def load(cls, path: str | Path) -> "EventExperiment":
+        """Load an experiment's sequence and configuration from a JSON file.
+
+        Parameters
+        ----------
+        path : str or Path
+            JSON file previously written by :meth:`save`.
+
+        Returns
+        -------
+        EventExperiment
+            Experiment initialized with the serialized configuration and,
+            for sequence-backed files, the serialized event sequence.
+        """
         with Path(path).open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         config = EventConfig.from_dict(payload.get("config", {}))
@@ -265,16 +355,55 @@ class EventExperiment:
         return cls(sequence, word_length=config.word_length, config=config)
 
     def save(self, path: str | Path) -> Path:
+        """Serialize experiment configuration, metrics, and counts as JSON.
+
+        Manager-backed experiments also include channel metrics and pairwise
+        mutual information. The target directory is created if necessary.
+
+        Parameters
+        ----------
+        path : str or Path
+            Destination JSON file.
+
+        Returns
+        -------
+        Path
+            The destination path.
+        """
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
 
         if self.is_manager_backed:
+            joint_entropy = [
+                {
+                    "channels": list(pair),
+                    "bits": max(
+                        0.0,
+                        self.channel_experiments[pair[0]].block_entropy
+                        + self.channel_experiments[pair[1]].block_entropy
+                        - mutual_information,
+                    ),
+                }
+                for pair, mutual_information in self.pairwise_mutual_information.items()
+            ]
+            if len(self.channel_names) == 1:
+                channel_name = self.channel_names[0]
+                joint_entropy.append(
+                    {
+                        "channels": [channel_name],
+                        "bits": self.channel_experiments[channel_name].block_entropy,
+                    }
+                )
             payload = {
-                "metrics": self._metrics_payload(self),
-                "channel_metrics": {
-                    name: self._metrics_payload(experiment)
+                "metrics": {
+                    **self._metrics_payload(self),
+                    "channel_names": self.channel_names,
+                },
+                "channel_entropy": {
+                    name: experiment.block_entropy
                     for name, experiment in self.channel_experiments.items()
                 },
+                "joint_entropy": joint_entropy,
                 "pairwise_mutual_information": [
                     {"channels": list(pair), "bits": value}
                     for pair, value in self.pairwise_mutual_information.items()
@@ -290,7 +419,6 @@ class EventExperiment:
                 ],
                 "kind": "manager",
                 "config": self.config.to_dict(),
-                "channel_names": self.channel_names,
                 "counts": self._serialize_counts(self.counts),
                 "version": 3,
             }
@@ -315,6 +443,7 @@ class EventExperiment:
 
     @staticmethod
     def _metrics_payload(experiment: "EventExperiment") -> dict[str, float]:
+        """Return the scalar metrics stored for one experiment."""
         return {
             "block_entropy": experiment.block_entropy,
             "total_count": experiment.total_count,
@@ -322,12 +451,15 @@ class EventExperiment:
 
     @staticmethod
     def _serialize_counts(counts: Mapping[tuple[Any, ...], int]) -> dict[str, int]:
+        """Convert tuple word keys to comma-separated JSON object keys."""
         return {",".join(str(part) for part in key): value for key, value in counts.items()}
 
     def invalidate_cache(self) -> None:
+        """Rebuild word counts, marginal distributions, and block entropy."""
         self._build_counts_and_distributions()
 
     def _build_counts_and_distributions(self) -> None:
+        """Count overlapping words independently within each recording."""
         self.counts = Counter()
         self.marginal_counts = {}
         sequences = getattr(self, "recording_sequences", (self.sequence,))
@@ -361,6 +493,7 @@ class EventExperiment:
 
     @staticmethod
     def _entropy_from_counts(counts: Mapping[tuple[Any, ...], int]) -> float:
+        """Compute Shannon entropy in bits from word counts."""
         total = sum(counts.values())
         if total == 0:
             return 0.0
@@ -373,6 +506,7 @@ class EventExperiment:
 
     @staticmethod
     def _normalize_word(word: Any) -> tuple[Any, ...]:
+        """Convert a scalar or array-like word to a tuple."""
         if word is None:
             return ()
         if isinstance(word, tuple):
@@ -385,6 +519,7 @@ class EventExperiment:
 
     @staticmethod
     def _normalize_sequence(sequence: Any) -> tuple[Any, ...]:
+        """Convert a scalar or array-like sequence to a flat tuple."""
         if sequence is None:
             return ()
         if isinstance(sequence, (list, tuple, np.ndarray)):
@@ -392,6 +527,11 @@ class EventExperiment:
         return (sequence,)
 
     def _marginal_prob(self, sequence: Sequence[Any]) -> float:
+        """Return the empirical probability of a sequence prefix.
+
+        Empty sequences have probability one. Prefixes shorter than
+        ``word_length`` are summed over matching full words.
+        """
         seq = self._normalize_sequence(sequence)
         if len(seq) == 0:
             return 1.0
@@ -406,40 +546,11 @@ class EventExperiment:
         return 0.0 if self.total_count == 0 else total / self.total_count
 
     def __repr__(self) -> str:
+        """Return a compact summary of the experiment's word counts."""
         return (
             f"EventExperiment(word_length={self.word_length}, "
             f"n_words={len(self.counts)}, total_count={self.total_count})"
         )
-
-
-def mutual_information(x: Sequence[Any] | np.ndarray, y: Sequence[Any] | np.ndarray) -> float:
-    """Compute I(X; Y) in bits using the aligned joint distribution."""
-
-    x_array = np.asarray(x).ravel()
-    y_array = np.asarray(y).ravel()
-    if x_array.shape[0] != y_array.shape[0]:
-        raise ValueError("x and y must have the same length.")
-    if x_array.size == 0:
-        return 0.0
-
-    x_values = np.unique(x_array)
-    y_values = np.unique(y_array)
-    joint = np.zeros((x_values.size, y_values.size), dtype=float)
-    for xi, yi in zip(x_array, y_array):
-        i = int(np.where(x_values == xi)[0][0])
-        j = int(np.where(y_values == yi)[0][0])
-        joint[i, j] += 1.0
-    joint /= joint.sum()
-
-    px = joint.sum(axis=1)
-    py = joint.sum(axis=0)
-    mi = 0.0
-    for i, p_x in enumerate(px):
-        for j, p_y in enumerate(py):
-            p_xy = joint[i, j]
-            if p_xy > 0.0:
-                mi += p_xy * math.log2(p_xy / (p_x * p_y))
-    return float(mi)
 
 
 def _pairwise_context_mutual_information(
@@ -448,10 +559,13 @@ def _pairwise_context_mutual_information(
     right_channel: int,
     context_length: int,
 ) -> float:
-    left_categories: dict[tuple[Any, ...], int] = {}
-    right_categories: dict[tuple[Any, ...], int] = {}
-    left_codes: list[int] = []
-    right_codes: list[int] = []
+    """Compute mutual information between channel contexts across recordings.
+
+    Each observation is a tuple of ``context_length``, equivalent with word_length, it means
+    consecutive events from one channel. Contexts are never formed across recording boundaries.
+    ``left_channel`` and ``right_channel`` are column indexes into ``events``.
+    """
+    joint_counts: Counter[tuple[tuple[Any, ...], tuple[Any, ...]]] = Counter()
 
     for recording in events:
         context_count = max(0, recording.shape[0] - context_length + 1)
@@ -462,14 +576,18 @@ def _pairwise_context_mutual_information(
             right_context = tuple(
                 recording[start : start + context_length, right_channel].tolist()
             )
-            if left_context not in left_categories:
-                left_categories[left_context] = len(left_categories)
-            if right_context not in right_categories:
-                right_categories[right_context] = len(right_categories)
-            left_codes.append(left_categories[left_context])
-            right_codes.append(right_categories[right_context])
+            joint_counts[(left_context, right_context)] += 1
 
-    return mutual_information(left_codes, right_codes)
+    left_counts: Counter[tuple[Any, ...]] = Counter()
+    right_counts: Counter[tuple[Any, ...]] = Counter()
+    for (left_context, right_context), count in joint_counts.items():
+        left_counts[left_context] += count
+        right_counts[right_context] += count
+
+    left_entropy = EventExperiment._entropy_from_counts(left_counts)
+    right_entropy = EventExperiment._entropy_from_counts(right_counts)
+    joint_entropy = EventExperiment._entropy_from_counts(joint_counts)
+    return max(0.0, left_entropy + right_entropy - joint_entropy)
 
 
 __all__ = [
@@ -477,5 +595,4 @@ __all__ = [
     "EventExperiment",
     "SimpleEventConfig",
     "WordDistribution",
-    "mutual_information",
 ]

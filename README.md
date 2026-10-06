@@ -1,10 +1,10 @@
-# Análisis de la información mutua entre las neuronas DV y LP del sistema nervioso estomatogástrico del cangrejo azul
+# Análisis de la información mutua entre las neuronas VD y LP del sistema nervioso estomatogástrico del cangrejo azul
 
 ## Resumen
 
 En neurociencia, el estudio de los sistemas neuronales suele apoyarse en la teoría de la información [referencia pendiente] y, en particular, en el análisis de la información mutua entre las neuronas que los componen. En este informe presentamos el desarrollo experimental, el tratamiento y análisis de los datos empleados para estudiar la información mutua en el sistema nervioso estomatogástrico (STNS, por sus siglas en inglés) [referencia pendiente] del cangrejo azul (*Callinectes sapidus*).
 
-El STNS es un generador central de patrones (CPG, por sus siglas en inglés) [referencia pendiente], un tipo de sistema neuronal ampliamente estudiado por la regularidad de su actividad global. Los CPG generan ritmos de señales eléctricas de manera autónoma, lo que permite estudiarlos fuera del organismo. Aprovechamos esta propiedad para analizar la información mutua entre las neuronas DV y LP y comparar su actividad en tres condiciones: espontánea, durante la aplicación reiterada de un estímulo y durante la recuperación posterior, sin estímulo.
+El STNS es un generador central de patrones (CPG, por sus siglas en inglés) [referencia pendiente], un tipo de sistema neuronal ampliamente estudiado por la regularidad de su actividad global. Los CPG generan ritmos de señales eléctricas de manera autónoma, lo que permite estudiarlos fuera del organismo. Aprovechamos esta propiedad para analizar la información mutua entre las neuronas VD y LP y comparar su actividad en tres condiciones: espontánea, durante la aplicación reiterada de un estímulo y durante la recuperación posterior, sin estímulo.
 
 ## Marco teórico
 
@@ -26,7 +26,7 @@ El primer método, la detección de eventos, parte de la hipótesis de que la in
 
 > Pendiente: describir el segundo método de discretización.
 
-La discretización permite construir n-gramas para calcular la entropía y la información mutua. El análisis se centra en la evolución de la entropía de bloque de cada canal y de la información mutua entre DV y LP, por separado para las tres fuentes de datos, a medida que aumenta la longitud de los n-gramas.
+La discretización permite construir n-gramas para calcular la entropía y la información mutua. El análisis se centra en la evolución de la entropía de bloque de cada canal y de la información mutua entre VD y LP, por separado para las tres fuentes de datos, a medida que aumenta la longitud de los n-gramas.
 
 ### Descripción de los datos
 
@@ -57,13 +57,13 @@ Con las siguientes tablas puedra hacer una comparación del resultado de esta re
 | Canal | Media | Máximo | `mean_max` |
 |:--|--:|--:|--:|
 | LP | -0.033591 | 1.540833 | 0.753621 |
-| DV | 0.043612 | 0.369568 | 0.206590 |
+| VD | 0.043612 | 0.369568 | 0.206590 |
 :`Registro 24`
 
 | Canal | Media | Máximo |`old_mean_max`| `mean_max` |
 |:--|--:|--:|--:|--:|
 | LP | -0.033512 | 1.665039 | 0.815764 | 0.666685 |
-| DV | 0.043721 | 1.351624 | 0.697673 | 0.199626 |
+| VD | 0.043721 | 1.351624 | 0.697673 | 0.199626 |
 :`Global`
 
 **Nota.** `mean_max_global` es un vector con un umbral por canal de la fuente de datos. En este informe, el nombre puede referirse al vector o al umbral de un canal concreto; el contexto permite distinguir ambos casos.
@@ -94,9 +94,9 @@ Esta verificación es importante porque la discretización convierte la señal e
 
 ### N-gramas e información mutua
 
-El análisis de detección de eventos parte de la hipótesis de que el ritmo del generador central de patrones (CPG) se establece mediante la comunicación entre las neuronas del STNS, en la que participan DV y LP. Una representación binaria de cada ventana conserva si hubo o no un spike, pero no describe el orden de los eventos ni posibles dependencias temporales. Para estudiar esos patrones, agrupamos símbolos consecutivos en palabras de longitud $N$, también llamadas $N$-gramas.
+El análisis de detección de eventos parte de la hipótesis de que el ritmo del generador central de patrones (CPG) se establece mediante la comunicación entre las neuronas del STNS, en la que participan VD y LP. Una representación binaria de cada ventana conserva si hubo o no un spike, pero no describe el orden de los eventos ni posibles dependencias temporales. Para estudiar esos patrones, agrupamos símbolos consecutivos en palabras de longitud $N$, también llamadas $N$-gramas.
 
-Sea $X^N$ la palabra de DV y $Y^N$ la palabra de LP observadas en el mismo conjunto de $N$ ventanas consecutivas. Para una longitud fija $N$, estimamos sus probabilidades a partir de las frecuencias relativas en todas las posiciones válidas del registro. Si el registro discretizado tiene longitud $T$, hay $T-N+1$ palabras posibles por canal. Definimos el conteo conjunto como
+Sea $X^N$ la palabra de VD y $Y^N$ la palabra de LP observadas en el mismo conjunto de $N$ ventanas consecutivas. Para una longitud fija $N$, estimamos sus probabilidades a partir de las frecuencias relativas en todas las posiciones válidas del registro. Si el registro discretizado tiene longitud $T$, hay $T-N+1$ palabras posibles por canal. Definimos el conteo conjunto como
 
 $$
 C_N(x_N,y_N) = \sum_{t=1}^{T-N+1}
@@ -122,7 +122,7 @@ $$
 En los resultados, `block_entropy` representa $H_N(X)$. Así, las etiquetas describen la longitud configurada `word_length = N`.
 
 $$
-\hat{I}_N(DV,LP) = \sum_{x_N,\,y_N}\hat{p}_N(x_N,y_N)\,
+\hat{I}_N(VD,LP) = \sum_{x_N,\,y_N}\hat{p}_N(x_N,y_N)\,
   \log_2\frac{\hat{p}_N(x_N,y_N)}{\hat{p}_N(x_N)\,\hat{p}_N(y_N)}
 $$
 
@@ -133,14 +133,14 @@ x_N^{(t)} = \left(x_t,\,x_{t+1},\,\dots,\,x_{t+N-1}\right), \qquad
 y_N^{(t)} = \left(y_t,\,y_{t+1},\,\dots,\,y_{t+N-1}\right)
 $$
 
-Esta cantidad depende también de la ventana temporal, pues esta determina la discretización de los datos. Como usamos una misma ventana al comparar los experimentos, omitimos ese parámetro en la notación. Al estar alineadas las palabras, la información mutua es simétrica: $\hat{I}_N(DV,LP)=\hat{I}_N(LP,DV)$.
+Esta cantidad depende también de la ventana temporal, pues esta determina la discretización de los datos. Como usamos una misma ventana al comparar los experimentos, omitimos ese parámetro en la notación. Al estar alineadas las palabras, la información mutua es simétrica: $\hat{I}_N(VD,LP)=\hat{I}_N(LP,VD)$.
 
-Como las entropías marginales y la información mutua se calculan a partir de las mismas palabras de longitud $N$, se cumple $0 \leq \hat{I}_N(DV,LP) \leq \min(H_N(DV), H_N(LP))$.
+Como las entropías marginales y la información mutua se calculan a partir de las mismas palabras de longitud $N$, se cumple $0 \leq \hat{I}_N(VD,LP) \leq \min(H_N(VD), H_N(LP))$.
 
 En términos de las distribuciones verdaderas, la información mutua de las palabras no disminuye al aumentar $N$. En efecto, $X^N$ y $Y^N$ se obtienen como prefijos de $X^{N+1}$ y $Y^{N+1}$; añadir variables a cualquiera de los dos vectores no puede reducir la información mutua. Por tanto,
 
 $$
-I_{N+1}(DV,LP) \geq I_N(DV,LP).
+I_{N+1}(VD,LP) \geq I_N(VD,LP).
 $$
 
 La desigualdad puede ser una igualdad si los símbolos añadidos no aportan información nueva. Esta propiedad se refiere a las distribuciones verdaderas. En un registro finito, las frecuencias se vuelven a calcular para cada longitud y el número de posiciones válidas disminuye de $T-N+1$ a $T-N$; por variabilidad muestral, el estimador $\hat{I}_N$ no tiene por qué crecer en cada paso. Además, al aumentar $N$ crece rápidamente el número de palabras posibles, por lo que algunas aparecen pocas veces o no aparecen; las estimaciones para longitudes grandes deben interpretarse con cautela.
@@ -150,7 +150,7 @@ La desigualdad puede ser una igualdad si los símbolos añadidos no aportan info
 La información mutua total suele crecer con la longitud porque cada palabra contiene más símbolos. Para comparar cuánto acoplamiento informativo corresponde, en promedio, a cada ventana, consideramos también la cantidad normalizada
 
 $$
-\frac{\hat{I}_N(DV,LP)}{N},
+\frac{\hat{I}_N(VD,LP)}{N},
 $$
 
 expresada en bits por ventana. Esta normalización permite comparar palabras de distintas longitudes, pero no tiene por qué ser creciente: la información total puede aumentar mientras que su promedio por símbolo disminuye. Así, $\hat{I}_N$ mide la información conjunta acumulada en palabras de longitud $N$, mientras que $\hat{I}_N/N$ describe su rendimiento medio por ventana.
