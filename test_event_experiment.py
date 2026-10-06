@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from event_experiment import EventExperiment, mutual_information
+from EventExperiment import EventExperiment, mutual_information, normalized_mutual_information
 
 
 def test_constant_signal_has_zero_entropy_and_zero_conditional_entropy():
@@ -84,6 +84,21 @@ def test_identical_channels_have_mutual_information_equal_to_entropy_and_indepen
 
     assert abs(same_mi - x_entropy) < 1e-9
     assert ind_mi < 0.3
+
+
+def test_normalized_mutual_information_returns_both_directional_ratios():
+    x = [0, 0, 1, 1]
+    y = [0, 0, 0, 1]
+
+    x_normalized, y_normalized = normalized_mutual_information(x, y)
+
+    assert x_normalized < y_normalized
+    assert abs(y_normalized - 1.0) < 1e-12
+    assert abs(x_normalized - mutual_information(x, y)) < 1e-12
+
+
+def test_normalized_mutual_information_is_zero_when_a_denominator_entropy_is_zero():
+    assert normalized_mutual_information([1, 1, 1], [0, 1, 0]) == (0.0, 0.0)
 
 
 def test_save_and_load_roundtrip_for_config_and_metrics(tmp_path):

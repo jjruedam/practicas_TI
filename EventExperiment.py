@@ -121,6 +121,7 @@ class EventExperiment:
         self.channel_names: list[str] = []
         self.channel_experiments: dict[str, EventExperiment] = {}
         self.pairwise_mutual_information: dict[tuple[str, str], float] = {}
+        self.pairwise_normalized_mutual_information: dict[tuple[str, str], tuple[float, float]] = {}
         self.output_path: Path | None = None
         if manager is not None:
             self._initialize_from_manager(manager)
@@ -219,10 +220,24 @@ class EventExperiment:
             self.channel_experiments[channel_name] = channel_experiment
 
         for left, right in combinations(range(len(self.channel_names)), 2):
-            pair = (self.channel_names[left], self.channel_names[right])
-            self.pairwise_mutual_information[pair] = _pairwise_context_mutual_information(
+            ch_left = self.channel_names[left]
+            ch_right = self.channel_names[right]
+            pair = (ch_left, ch_right)
+
+            mi = _pairwise_context_mutual_information(
                 events, left, right, self.word_length
             )
+            self.pairwise_mutual_information[pair] = mi
+
+            # Entropías de cada canal
+            h_left = self.channel_experiments[ch_left].block_entropy_plus_one
+            h_right = self.channel_experiments[ch_right].block_entropy_plus_one
+
+            # Guardar un diccionario explícito por nombre de canal en vez de una tupla por posiciones
+            self.pairwise_normalized_mutual_information[pair] = {
+                ch_left: float(mi / h_left) if h_left > 0 else 0.0,
+                ch_right: float(mi / h_right) if h_right > 0 else 0.0,
+            }
 
     def _manager_output_path(self, manager: DataManager) -> Path:
         directory = Path(manager.data_dir) / "experiments"
@@ -279,10 +294,24 @@ class EventExperiment:
             self.channel_experiments[channel_name] = channel_experiment
         self.pairwise_mutual_information = {}
         for left, right in combinations(range(len(self.channel_names)), 2):
-            pair = (self.channel_names[left], self.channel_names[right])
-            self.pairwise_mutual_information[pair] = _pairwise_context_mutual_information(
+            ch_left = self.channel_names[left]
+            ch_right = self.channel_names[right]
+            pair = (ch_left, ch_right)
+
+            mi = _pairwise_context_mutual_information(
                 events, left, right, self.word_length
             )
+            self.pairwise_mutual_information[pair] = mi
+
+            # Entropías de cada canal
+            h_left = self.channel_experiments[ch_left].block_entropy_plus_one
+            h_right = self.channel_experiments[ch_right].block_entropy_plus_one
+
+            # Guardar un diccionario explícito por nombre de canal en vez de una tupla por posiciones
+            self.pairwise_normalized_mutual_information[pair] = {
+                ch_left: float(mi / h_left) if h_left > 0 else 0.0,
+                ch_right: float(mi / h_right) if h_right > 0 else 0.0,
+            }
         self.invalidate_cache()
 
     def save(self, path: str | Path) -> Path:
@@ -305,6 +334,15 @@ class EventExperiment:
                 "pairwise_mutual_information": [
                     {"channels": list(pair), "bits": value}
                     for pair, value in self.pairwise_mutual_information.items()
+                ],
+                "pairwise_normalized_mutual_information": [
+                    {
+                        "channels": list(pair),
+                        f"nmi_normalized_by_{ch_left}": nmi_dict[ch_left],
+                        f"nmi_normalized_by_{ch_right}": nmi_dict[ch_right],
+                    }
+                    for pair, nmi_dict in self.pairwise_normalized_mutual_information.items()
+                    for ch_left, ch_right in [pair]
                 ],
             }
         else:
@@ -604,6 +642,31 @@ def mutual_information(x: Sequence[Any] | np.ndarray, y: Sequence[Any] | np.ndar
     return float(mi)
 
 
+
+def normalized_mutual_information(self, ch1: str, ch2: str) -> tuple[float, float]:
+    """Calcula (I(ch1; ch2) / H(ch1), I(ch1; ch2) / H(ch2)) usando las entropías ya calculadas."""
+    if ch1 not in self.channel_experiments or ch2 not in self.channel_experiments:
+        raise ValueError(f"Los canales {ch1} y {ch2} deben existir en channel_experiments.")
+
+    # 1. Obtener I(X; Y)
+    pair = (ch1, ch2) if (ch1, ch2) in self.pairwise_mutual_information else (ch2, ch1)
+    mi = self.pairwise_mutual_information.get(pair)
+    
+    if mi is None:
+        # Si no estuviera precalculado en el diccionario pairwise:
+        seq1 = self.channel_experiments[ch1].sequence
+        seq2 = self.channel_experiments[ch2].sequence
+        mi = mutual_information(seq1, seq2)
+
+    # 2. Reutilizar H(X) y H(Y) que YA FUERON CALCULADAS al construir cada canal
+    h1 = self.channel_experiments[ch1].block_entropy_plus_one
+    h2 = self.channel_experiments[ch2].block_entropy_plus_one
+
+    nmi_1 = mi / h1 if h1 > 0 else 0.0
+    nmi_2 = mi / h2 if h2 > 0 else 0.0
+
+    return float(nmi_1), float(nmi_2)
+
 def _pairwise_context_mutual_information(
     events: np.ndarray,
     left_channel: int,
@@ -642,4 +705,5 @@ __all__ = [
     "WordDistribution",
     "information_event",
     "mutual_information",
+    "normalized_mutual_information",
 ]
