@@ -2,17 +2,43 @@
 
 ## Resumen
 
-En neurociencia, el estudio de los sistemas neuronales suele apoyarse en la teoría de la información [referencia pendiente] y, en particular, en el análisis de la información mutua entre las neuronas que los componen. En este informe presentamos el desarrollo experimental, el tratamiento y análisis de los datos empleados para estudiar la información mutua en el sistema nervioso estomatogástrico (STNS, por sus siglas en inglés) [referencia pendiente] del cangrejo azul (*Callinectes sapidus*).
+En neurociencia, el estudio de los sistemas neuronales suele apoyarse en la teoría de la información (Shannon, 1948; Cover & Thomas, 2006) y, en particular, en el análisis de la información mutua entre las neuronas que los componen. En este informe presentamos el desarrollo experimental, el tratamiento y análisis de los datos empleados para estudiar la información mutua en el sistema nervioso estomatogástrico (STNS, por sus siglas en inglés) (Marder & Bucher, 2007) del cangrejo azul (*Callinectes sapidus*).
 
-El STNS es un generador central de patrones (CPG, por sus siglas en inglés) [referencia pendiente], un tipo de sistema neuronal ampliamente estudiado por la regularidad de su actividad global. Los CPG generan ritmos de señales eléctricas de manera autónoma, lo que permite estudiarlos fuera del organismo. Aprovechamos esta propiedad para analizar la información mutua entre las neuronas VD y LP y comparar su actividad en tres condiciones: espontánea, durante la aplicación reiterada de un estímulo y durante la recuperación posterior, sin estímulo.
+El STNS es un generador central de patrones (CPG, por sus siglas en inglés) (Latorre et al., 2002; Rodríguez et al., 2002), un tipo de sistema neuronal ampliamente estudiado por la regularidad de su actividad global. Los CPG generan ritmos de señales eléctricas de manera autónoma, lo que permite estudiarlos fuera del organismo. Aprovechamos esta propiedad para analizar la información mutua entre las neuronas VD y LP y comparar su actividad en tres condiciones: espontánea, durante la aplicación reiterada de un estímulo y durante la recuperación posterior, sin estímulo.
 
 ## Marco teórico
 
-> Pendiente: definir los temas que se desarrollarán en esta sección.
+### Modelos neuronales, STNS y CPG
+#### Actividad eléctrica neuronal y spikes
 
-### Modelos Neuronales, STNS y CPG
+Las neuronas transmiten señales mediante cambios en su potencial eléctrico. Cuando estos cambios superan el umbral de excitación se producen potenciales de acción, o *spikes*, que pueden representarse por sus tiempos de ocurrencia como un tren de eventos. En un registro extracelular, la señal observada depende también de la preparación y del electrodo; por ello, el análisis de eventos requiere un criterio de detección consistente (Marder & Bucher, 2007; Strong et al., 1998).
+
+#### Sistema nervioso estomatogástrico (STNS) del cangrejo azul
+
+El STNS es un circuito neuronal de crustáceos que controla movimientos rítmicos del sistema digestivo. Su organización relativamente accesible y la persistencia de patrones rítmicos en preparaciones aisladas lo han convertido en un modelo para estudiar cómo las propiedades neuronales y las conexiones sinápticas producen actividad coordinada (Marder & Bucher, 2007). En este proyecto se estudian registros del STNS del cangrejo azul, *Callinectes sapidus*.
+
+#### Generadores centrales de patrones (CPG) y neuronas VD y LP
+
+Un generador central de patrones (CPG) es una red neuronal capaz de producir actividad rítmica sin requerir una señal rítmica externa. En el STNS, el circuito pilórico genera secuencias coordinadas de actividad en neuronas motoras. VD y LP forman parte de la actividad registrada en este circuito; sus spikes pueden organizarse en ráfagas y fases rítmicas. El análisis de intervalos entre spikes y de ráfagas ofrece descripciones complementarias de estos patrones (Latorre et al., 2002; Rodríguez et al., 2002).
+
+### Codificación neuronal y discretización de señales
+#### Codificación por eventos (spike trains) y secuencias binarias
+
+Un tren de spikes conserva los instantes de los eventos, mientras que una secuencia binaria resume cada intervalo como presencia o ausencia de al menos un spike. Esta representación facilita comparar canales y calcular estadísticas, pero pierde información sobre la forma y amplitud de cada spike y sobre su posición exacta dentro de la ventana. La elección de la representación determina, por tanto, qué aspectos de la actividad pueden detectarse como dependencias (Strong et al., 1998; Rodríguez et al., 2002).
+
+#### Ventana temporal Δt y palabras (n-gramas)
+
+La duración de la ventana, Δt, fija la resolución temporal de la secuencia: ventanas pequeñas conservan mejor la localización de los eventos, mientras que ventanas grandes pueden agrupar eventos cercanos y ocultar su orden. Al agrupar símbolos binarios consecutivos en palabras de longitud N, o n-gramas, se representan patrones temporales más extensos y se pueden comparar secuencias alineadas de VD y LP. Al crecer N también aumenta el número de palabras posibles, de modo que la estimación a partir de registros finitos exige cautela (Strong et al., 1998; Paninski, 2003).
 
 ### Teoría de la información
+#### Entropía de Shannon y entropía de bloque
+
+La entropía de Shannon cuantifica la incertidumbre de una variable aleatoria: es baja cuando unos pocos resultados concentran la probabilidad y alta cuando la probabilidad está más repartida (Shannon, 1948; Cover & Thomas, 2006). La entropía de bloque aplica esta idea a secuencias de N símbolos; así incorpora tanto la variabilidad de cada símbolo como los patrones temporales que aparecen en la palabra. Su estimación empírica depende de cuántas observaciones haya para cubrir los patrones posibles (Paninski, 2003).
+
+#### Información mutua
+
+La información mutua cuantifica cuánto reduce la observación de una variable la incertidumbre sobre otra. Es cero cuando las variables son independientes y es simétrica: intercambiar los canales no cambia su valor. Aplicada a palabras alineadas, mide la dependencia estadística compartida entre sus patrones, pero no identifica por sí sola un mecanismo ni una dirección causal (Cover & Thomas, 2006; Rodríguez et al., 2001). 
+
 
 ## Diseño experimental
 
@@ -146,21 +172,20 @@ $$
 H_N(X) = -\sum_{x_N} \hat{p}_N(x_N)\log_2\hat{p}_N(x_N).
 $$
 
-En los resultados, `block_entropy` representa $H_N(X)$. Así, las etiquetas describen la longitud configurada `word_length = N`.
-
-$$
-\hat{I}_N(VD,LP) = \sum_{x_N,\,y_N}\hat{p}_N(x_N,y_N)\,
-  \log_2\frac{\hat{p}_N(x_N,y_N)}{\hat{p}_N(x_N)\,\hat{p}_N(y_N)}
-$$
-
-La suma se toma sobre las palabras observadas con probabilidad conjunta positiva. Las palabras se construyen sincronizadamente en ambos canales:
+Así, las etiquetas describen la longitud configurada `word_length = N`. La suma se toma sobre las palabras observadas con probabilidad conjunta positiva. Las palabras se construyen sincronizadamente en ambos canales:
 
 $$
 x_N^{(t)} = \left(x_t,\,x_{t+1},\,\dots,\,x_{t+N-1}\right), \qquad
 y_N^{(t)} = \left(y_t,\,y_{t+1},\,\dots,\,y_{t+N-1}\right)
 $$
 
-Esta cantidad depende también de la ventana temporal, pues esta determina la discretización de los datos. Como usamos una misma ventana al comparar los experimentos, omitimos ese parámetro en la notación. Al estar alineadas las palabras, la información mutua es simétrica: $\hat{I}_N(VD,LP)=\hat{I}_N(LP,VD)$.
+Aprovechando el calculo de las entropias reducimos la estimación de la información mutua usando la siguiente identidad: 
+
+$$
+\hat{I}_N(VD,LP) = H_N(X) + H_N(Y) - H_N(X,Y)
+$$
+
+Estas cantidades dependen también de la duración de la ventana temporal, $\Delta t$, pues esta determina la discretización de los datos. Para destacar esta dependencia podríamos escribir $H_N(X;\Delta t)$ y $\hat{I}_N(VD,LP;\Delta t)$, pero omitiremos $\Delta t$ en la notación general para mantener las expresiones sencillas. En los resultados analizaremos cómo varía la información mutua al cambiar este parámetro. Al estar alineadas las palabras, la información mutua es simétrica: $\hat{I}_N(VD,LP)=\hat{I}_N(LP,VD)$.
 
 Como las entropías marginales y la información mutua se calculan a partir de las mismas palabras de longitud $N$, se cumple $0 \leq \hat{I}_N(VD,LP) \leq \min(H_N(VD), H_N(LP))$.
 
@@ -172,18 +197,40 @@ $$
 
 La desigualdad puede ser una igualdad si los símbolos añadidos no aportan información nueva. Esta propiedad se refiere a las distribuciones verdaderas. En un registro finito, las frecuencias se vuelven a calcular para cada longitud y el número de posiciones válidas disminuye de $T-N+1$ a $T-N$; por variabilidad muestral, el estimador $\hat{I}_N$ no tiene por qué crecer en cada paso. Además, al aumentar $N$ crece rápidamente el número de palabras posibles, por lo que algunas aparecen pocas veces o no aparecen; las estimaciones para longitudes grandes deben interpretarse con cautela.
 
-> Pendiente: Corregir el desarrollo de la normalización
-
-La información mutua total suele crecer con la longitud porque cada palabra contiene más símbolos. Para comparar cuánto acoplamiento informativo corresponde, en promedio, a cada ventana, consideramos también la cantidad normalizada
+Para interpretar la información mutua como una medida de transferencia relativa, normalizamos respecto de la entropía del canal que se considera estímulo. Si VD se toma como estímulo de LP, usamos
 
 $$
-\frac{\hat{I}_N(VD,LP)}{N},
+E_{VD\to LP}^{(N)} = \frac{\hat{I}_N(VD,LP)}{H_N(VD)},
 $$
 
-expresada en bits por ventana. Esta normalización permite comparar palabras de distintas longitudes, pero no tiene por qué ser creciente: la información total puede aumentar mientras que su promedio por símbolo disminuye. Así, $\hat{I}_N$ mide la información conjunta acumulada en palabras de longitud $N$, mientras que $\hat{I}_N/N$ describe su rendimiento medio por ventana.
+que representa la fracción de la entropía de VD compartida con LP. Si LP se considera el estímulo de VD, la normalización correspondiente es
+
+$$
+E_{LP\to VD}^{(N)} = \frac{\hat{I}_N(VD,LP)}{H_N(LP)}.
+$$
+
+Aunque la información mutua es simétrica, estas dos cantidades normalizadas pueden diferir porque usan entropías marginales distintas. Describen información compartida relativa; por sí solas no demuestran una relación causal ni estiman una transferencia dirigida entre las neuronas.
 
 ### Segunda discretización
 
 ### Segunda estimación de la información mutua
 
 ## Resultados
+
+## Referencias
+
+Cover, T. M., & Thomas, J. A. (2006). *Elements of information theory* (2nd ed.). Wiley. https://doi.org/10.1002/047174882X
+
+Latorre, R., Rodríguez, F. B., & Varona, P. (2002). Characterization of triphasic rhythms in central pattern generators (I): Interspike interval analysis. In *Artificial neural networks—ICANN 2002* (Lecture Notes in Computer Science, Vol. 2415, pp. 160–166). Springer. https://doi.org/10.1007/3-540-46084-5_27
+
+Marder, E., & Bucher, D. (2007). Understanding circuit dynamics using the stomatogastric nervous system of lobsters and crabs. *Annual Review of Physiology, 69*, 291–316. https://doi.org/10.1146/annurev.physiol.69.031905.161516
+
+Paninski, L. (2003). Estimation of entropy and mutual information. *Neural Computation, 15*(6), 1191–1253. https://doi.org/10.1162/089976603321780272
+
+Rodríguez, F. B., Latorre, R., & Varona, P. (2002). Characterization of triphasic rhythms in central pattern generators (II): Burst information analysis. In *Artificial neural networks—ICANN 2002* (Lecture Notes in Computer Science, Vol. 2415, pp. 167–173). Springer. https://doi.org/10.1007/3-540-46084-5_28
+
+Rodríguez, F. B., Varona, P., Huerta, R., Rabinovich, M. I., & Abarbanel, H. D. I. (2001). Richer network dynamics of intrinsically non-regular neurons measured through mutual information. In *Connectionist models of neurons, learning processes, and artificial intelligence* (Lecture Notes in Computer Science, Vol. 2084, pp. 490–497). Springer. https://doi.org/10.1007/3-540-45720-8_58
+
+Shannon, C. E. (1948). A mathematical theory of communication. *The Bell System Technical Journal, 27*(3), 379–423; *27*(4), 623–656. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x
+
+Strong, S. P., Koberle, R., de Ruyter van Steveninck, R. R., & Bialek, W. (1998). Entropy and information in neural spike trains. *Physical Review Letters, 80*(1), 197–200. https://doi.org/10.1103/PhysRevLett.80.197
