@@ -16,7 +16,34 @@ El STNS es un generador central de patrones (CPG, por sus siglas en inglés) [re
 
 ## Diseño experimental
 
-> Pendiente: resumir las diapositivas de la presentación 0.
+### Sistema biológico y preparación
+
+El estudio se realiza sobre el sistema nervioso estomatogástrico (STNS) del cangrejo azul (Callinectes sapidus), una red de tipo CPG (generador central de patrones) que produce actividad rítmica trifásica de forma autónoma. Se trabaja in vitro: el sistema nervioso se extrae del organismo y se mantiene en una cámara de registro bajo un estereomicroscopio, con control de temperatura y sobre una mesa de aislamiento de vibraciones.
+
+Se registra de forma extracelular en los nervios motores del STNS:
+
+ - LVN (nervio ventricular lateral): contiene la actividad de la neurona LP, junto con PY y PD.
+ - MVN (nervio ventricular medial): contiene la actividad de la neurona VD, junto con IC.
+ - IVN (nervio ventricular inferior): también se registra, aunque el análisis se limita a LP y VD.
+
+Los registros extracelulares miden la caída de potencial entre dos electrodos a lo largo de la resistencia del medio, lo que permite identificar los spikes y los bursts de cada neurona.
+
+### Estimulación con GABA mediante microinyección
+
+La perturbación experimental consiste en la inyección de GABA (neurotransmisor) sobre el circuito. Para ello se emplea un microinyector construido en el laboratorio, controlado electrónicamente y dirigido sobre la preparación. El control en tiempo real se realiza con un sistema de sinapsis artificiales y estimulación en tiempo real, que permite que la inyección dependa de la propia actividad de la red.
+
+La inyección se dispara a partir de los bursts de la neurona VD (trigger), aplicando la inyección durante 0.4ms apartir del cuarto spike dek burst. Estableciendo un lazo cerrado entre actividad y estimulación.
+
+### Protocolo temporal
+
+Cada experimento se divide en tres fases, que se corresponden con las condiciones del proyecto:
+
+ 1. Control (actividad espontánea): 1 minuto.
+ 2. GABA (estimulación repetida): 2 minutos de inyección.
+ 3. Recuperación: 3 minutos de registro posterior.
+
+Tras cada experimento se deja un periodo de 10 minutos para la recuperación total de la preparación antes de repetir el protocolo con otra modalidad. Los ficheros de datos del repositorio (TrozoC, TrozoG, TrozoR) corresponden a estas tres fases: control, GABA y recuperación, agrupados en cadenas por condición.
+
 
 ## Tratamiento de datos
 
@@ -30,7 +57,7 @@ La discretización permite construir n-gramas para calcular la entropía y la in
 
 ### Descripción de los datos
 
-> Pendiente:
+Para cada condición del esperimento se obtienen dos canales simultáneos, LP y VD, con trenes de spikes agrupados en bursts rítmicos claramente identificables. Las señales se muestrean a 0,1 ms por muestra y se segmentan en grabaciones de 100 000 muestras para el análisis, como se puede ver en la imagen.
 
 
 ![Registro original de ejemplo](resources/raw_record.png)
