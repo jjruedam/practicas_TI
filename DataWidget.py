@@ -1,3 +1,5 @@
+from io import BytesIO
+
 import ipywidgets as widgets
 from IPython.display import display
 import matplotlib.pyplot as plt
@@ -11,7 +13,7 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
     """Crea un navegador de registros compatible con cualquier numero de canales."""
     estado = {"inicio": 0, "ventana": VENTANA_INICIAL}
     actualizando = False
-    out = widgets.Output()
+    grafica = widgets.Image(format="png")
 
     w_registro = widgets.IntText(
         value=registro_inicial,
@@ -50,16 +52,18 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
         actualizando = False
 
         inicio, ventana = estado["inicio"], estado["ventana"]
-        with out:
-            out.clear_output(wait=True)
-            manager.plot_channels(
-                w_registro.value,
-                show_mean_max=w_media.value,
-                event_time_window=w_evento.value,
-                zoom=(inicio, inicio + ventana),
-            )
-            plt.show()
-            plt.close("all")
+        fig, _ = manager.plot_channels(
+            w_registro.value,
+            show_mean_max=w_media.value,
+            event_time_window=w_evento.value,
+            zoom=(inicio, inicio + ventana),
+        )
+        try:
+            with BytesIO() as image_buffer:
+                fig.savefig(image_buffer, format="png", bbox_inches="tight")
+                grafica.value = image_buffer.getvalue()
+        finally:
+            plt.close(fig)
 
     def mover(fraccion_ventana):
         def callback(_):
@@ -101,7 +105,7 @@ def crear_widget(manager: DataManager, registro_inicial: int = 24):
 
     fila_nav = widgets.HBox([b_ini, b_prev, b_prev2, b_next2, b_next, b_zin, b_zout])
     fila_parametros = widgets.HBox([w_registro, w_inicio, w_ventana, w_evento, w_media])
-    interfaz = widgets.VBox([fila_nav, fila_parametros, out])
+    interfaz = widgets.VBox([fila_nav, fila_parametros, grafica])
     display(interfaz)
     dibujar()
     return interfaz

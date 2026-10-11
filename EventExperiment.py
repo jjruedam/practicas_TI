@@ -256,41 +256,45 @@ class EventExperiment:
                 float(value) for value in threshold.reindex(self.channel_names).tolist()
             )
 
-        events = np.asarray(
-            manager.discretize(
-                event_time_window=int(round(simple_event.window / SAMPLE_INTERVAL)),
-                acceptance_threshold=threshold,
+        window_samples = int(round(simple_event.window / SAMPLE_INTERVAL))
+        events_by_recording = [
+            np.asarray(
+                manager.discretize_recording(
+                    index,
+                    event_time_window=window_samples,
+                    acceptance_threshold=threshold,
+                ),
+                dtype=np.uint8,
             )
-        )
+            for index in range(manager.n_recordings)
+        ]
+        events = np.stack(events_by_recording)
         if events.ndim != 3 or events.shape[2] != len(self.channel_names):
             raise ValueError(
-                "DataManager.discretize() must return an array shaped "
+                "DataManager.discretize_recording() must return an array shaped "
                 "(recordings, chunks, channels)."
             )
         events = events[:, :: simple_event.stride, :]
 
         self.is_manager_backed = True
         self.manager_recordings = events
-        self.recording_sequences = tuple(
-            tuple(tuple(row) for row in recording.tolist()) for recording in events
-        )
-        self.sequence = tuple(row for recording in self.recording_sequences for row in recording)
+        self.recording_sequences = ()
+        self.sequence = ()
 
         for index, channel_name in enumerate(self.channel_names):
-            channel_recordings = tuple(
-                tuple(recording[:, index].tolist()) for recording in events
-            )
             channel_experiment = EventExperiment(
                 sequence=(),
                 word_length=self.word_length,
                 config=self.config,
             )
-            channel_experiment.recording_sequences = channel_recordings
-            channel_experiment.sequence = tuple(
-                value for recording in channel_recordings for value in recording
-            )
             channel_experiment.channel_name = channel_name
-            channel_experiment.invalidate_cache()
+            channel_experiment._set_count_statistics(
+                self._binary_recording_word_counts(
+                    events,
+                    index,
+                    self.word_length,
+                )
+            )
             self.channel_experiments[channel_name] = channel_experiment
 
         for left, right in combinations(range(len(self.channel_names)), 2):
@@ -312,6 +316,89 @@ class EventExperiment:
                 ch_left: float(mi / h_left) if h_left > 0 else 0.0,
                 ch_right: float(mi / h_right) if h_right > 0 else 0.0,
             }
+
+    @staticmethod
+    def _binary_recording_word_counts(
+        recordings: np.ndarray,
+        channel_index: int,
+        word_length: int,
+    ) -> Counter[tuple[int, ...]]:
+        """Count binary words without materializing every event as a Python object."""
+        counts: Counter[tuple[int, ...]] = Counter()
+        if word_length > 64:
+            for recording in recordings:
+                values = recording[:, channel_index]
+                windows = zip(
+                    *(islice(values, offset, None) for offset in range(word_length))
+                )
+                counts.update(windows)
+            return counts
+
+        for recording in recordings:
+            context_count = recording.shape[0] - word_length + 1
+            if context_count <= 0:
+                continue
+            codes = np.zeros(context_count, dtype=np.uint64)
+            values = recording[:, channel_index]
+            for offset in range(word_length):
+                codes = (codes << 1) | values[offset : offset + context_count]
+            unique_codes, frequencies = np.unique(codes, return_counts=True)
+            for code, frequency in zip(unique_codes, frequencies):
+                word = tuple(
+                    int((code >> bit) & 1)
+                    for bit in range(word_length - 1, -1, -1)
+                )
+                counts[word] += int(frequency)
+        return counts
+
+    @staticmethod
+    def _multichannel_recording_word_counts(
+        recordings: np.ndarray,
+        word_length: int,
+    ) -> Counter[tuple[tuple[int, ...], ...]]:
+        """Count joint channel words while preserving recording boundaries."""
+        counts: Counter[tuple[tuple[int, ...], ...]] = Counter()
+        channel_count = recordings.shape[2]
+        bits_per_word = word_length * channel_count
+        if bits_per_word > 64:
+            for recording in recordings:
+                context_count = recording.shape[0] - word_length + 1
+                counts.update(
+                    tuple(
+                        tuple(int(value) for value in row)
+                        for row in recording[start : start + word_length].tolist()
+                    )
+                    for start in range(max(0, context_count))
+                )
+            return counts
+
+        for recording in recordings:
+            context_count = recording.shape[0] - word_length + 1
+            if context_count <= 0:
+                continue
+            row_codes = np.zeros(recording.shape[0], dtype=np.uint64)
+            for channel_index in range(channel_count):
+                row_codes = (row_codes << 1) | recording[:, channel_index]
+            word_codes = np.zeros(context_count, dtype=np.uint64)
+            for offset in range(word_length):
+                word_codes = (
+                    (word_codes << channel_count)
+                    | row_codes[offset : offset + context_count]
+                )
+            unique_codes, frequencies = np.unique(word_codes, return_counts=True)
+            row_mask = (1 << channel_count) - 1
+            for code, frequency in zip(unique_codes, frequencies):
+                word = []
+                for offset in range(word_length - 1, -1, -1):
+                    row_code = int((code >> (offset * channel_count)) & row_mask)
+                    word.append(
+                        tuple(
+                            (row_code >> bit) & 1
+                            for bit in range(channel_count - 1, -1, -1)
+                        )
+                    )
+                counts[tuple(word)] += int(frequency)
+        return counts
 
     def _manager_output_path(self, manager: DataManager) -> Path:
         """Choose a non-existing JSON path under the manager's experiments folder."""
@@ -460,13 +547,19 @@ class EventExperiment:
 
     def _build_counts_and_distributions(self) -> None:
         """Count overlapping words independently within each recording."""
-        self.counts = Counter()
-        self.marginal_counts = {}
+        if self.is_manager_backed:
+            self._set_count_statistics(
+                self._multichannel_recording_word_counts(
+                    self.manager_recordings,
+                    self.word_length,
+                )
+            )
+            return
+
+        counts: Counter[tuple[Any, ...]] = Counter()
         sequences = getattr(self, "recording_sequences", (self.sequence,))
         if not any(sequences):
-            self.word_distribution = WordDistribution()
-            self.block_entropy = 0.0
-            self.total_count = 0
+            self._set_count_statistics(counts)
             return
 
         full_length = self.word_length
@@ -474,8 +567,17 @@ class EventExperiment:
             windows = zip(
                 *(islice(sequence, offset, None) for offset in range(full_length))
             )
-            self.counts.update(windows)
+            counts.update(windows)
 
+        self._set_count_statistics(counts)
+
+    def _set_count_statistics(
+        self,
+        counts: Mapping[tuple[Any, ...], int],
+    ) -> None:
+        """Set word counts and their derived marginal and entropy statistics."""
+        self.counts = Counter(counts)
+        self.marginal_counts = {}
         self.total_count = float(sum(self.counts.values()))
         if self.total_count == 0:
             self.word_distribution = WordDistribution()
@@ -488,7 +590,6 @@ class EventExperiment:
         self.word_distribution = WordDistribution(
             {key: value / self.total_count for key, value in self.marginal_counts.items()}
         )
-
         self.block_entropy = self._entropy_from_counts(self.counts)
 
     @staticmethod
@@ -565,24 +666,59 @@ def _pairwise_context_mutual_information(
     consecutive events from one channel. Contexts are never formed across recording boundaries.
     ``left_channel`` and ``right_channel`` are column indexes into ``events``.
     """
-    joint_counts: Counter[tuple[tuple[Any, ...], tuple[Any, ...]]] = Counter()
-
-    for recording in events:
-        context_count = max(0, recording.shape[0] - context_length + 1)
-        for start in range(context_count):
-            left_context = tuple(
-                recording[start : start + context_length, left_channel].tolist()
+    if context_length <= 32:
+        joint_counts: Counter[int] = Counter()
+        for recording in events:
+            context_count = recording.shape[0] - context_length + 1
+            if context_count <= 0:
+                continue
+            left_codes = np.zeros(context_count, dtype=np.uint64)
+            right_codes = np.zeros(context_count, dtype=np.uint64)
+            for offset in range(context_length):
+                left_codes = (
+                    (left_codes << 1)
+                    | recording[offset : offset + context_count, left_channel]
+                )
+                right_codes = (
+                    (right_codes << 1)
+                    | recording[offset : offset + context_count, right_channel]
+                )
+            packed_codes = (left_codes << context_length) | right_codes
+            unique_codes, frequencies = np.unique(
+                packed_codes,
+                return_counts=True,
             )
-            right_context = tuple(
-                recording[start : start + context_length, right_channel].tolist()
+            joint_counts.update(
+                {
+                    int(code): int(frequency)
+                    for code, frequency in zip(unique_codes, frequencies)
+                }
             )
-            joint_counts[(left_context, right_context)] += 1
 
-    left_counts: Counter[tuple[Any, ...]] = Counter()
-    right_counts: Counter[tuple[Any, ...]] = Counter()
-    for (left_context, right_context), count in joint_counts.items():
-        left_counts[left_context] += count
-        right_counts[right_context] += count
+        left_counts: Counter[int] = Counter()
+        right_counts: Counter[int] = Counter()
+        right_mask = (1 << context_length) - 1
+        for packed_code, count in joint_counts.items():
+            left_counts[packed_code >> context_length] += count
+            right_counts[packed_code & right_mask] += count
+    else:
+        joint_counts: Counter[tuple[tuple[Any, ...], tuple[Any, ...]]] = Counter()
+        for recording in events:
+            context_count = max(0, recording.shape[0] - context_length + 1)
+            for start in range(context_count):
+                left_context = tuple(
+                    recording[start : start + context_length, left_channel].tolist()
+                )
+                right_context = tuple(
+                    recording[start : start + context_length, right_channel].tolist()
+                )
+                joint_counts[(left_context, right_context)] += 1
+
+        left_counts = Counter()
+        right_counts = Counter()
+        for (left_context, right_context), count in joint_counts.items():
+            left_counts[left_context] += count
+            right_counts[right_context] += count
 
     left_entropy = EventExperiment._entropy_from_counts(left_counts)
     right_entropy = EventExperiment._entropy_from_counts(right_counts)

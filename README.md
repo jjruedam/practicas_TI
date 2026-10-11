@@ -83,7 +83,7 @@ La discretización permite construir n-gramas para calcular la entropía y la in
 
 ### Descripción de los datos
 
-Para cada condición del esperimento se obtienen dos canales simultáneos, LP y VD, con trenes de spikes agrupados en bursts rítmicos claramente identificables. Las señales se muestrean a 0,1 ms por muestra y se segmentan en grabaciones de 100 000 muestras para el análisis, como se puede ver en la imagen.
+Para cada condición del experimento se obtienen dos canales simultáneos, LP y VD, con trenes de spikes agrupados en bursts rítmicos claramente identificables. Las señales se muestrean a 0,1 ms por muestra y se segmentan en grabaciones de 100 000 muestras para el análisis, como se puede ver en la imagen.
 
 
 ![Registro original de ejemplo](resources/raw_record.png)
@@ -105,7 +105,7 @@ $$
 
 En los datos analizados, se observa que $\operatorname{mean\_max}_{\mathrm{global}} \leq \operatorname{mean\_max}_{i,\mathrm{local}}$ para casi todos los registros $i$; la línea negra de la figura muestra el umbral global. Esta relación no está garantizada en general, pues las medias locales pueden variar. Cuando se cumple, cualquier spike detectado con el umbral local también queda por encima del umbral global.
 
-Con las siguientes tablas puedra hacer una comparación del resultado de esta redefinición del `global_mean_max`:
+Con las siguientes tablas se puede hacer una comparación del resultado de esta redefinición del `global_mean_max`:
 
 | Canal | Media | Máximo | `mean_max` |
 |:--|--:|--:|--:|
@@ -123,20 +123,56 @@ Con las siguientes tablas puedra hacer una comparación del resultado de esta re
 
 ### Ventana temporal para la discretización
 
-> Pendiente: obtención de la ventana temporal optima.
+La duración de la ventana temporal, $\Delta t$, determina la resolución con la que se representa cada tren de spikes mediante una secuencia binaria. Los registros se muestrean cada $0{,}1\,\mathrm{ms}$, que es el incremento empleado en el barrido de ventanas.
+
+Al aumentar $\Delta t$, pueden quedar varios spikes dentro de una misma ventana. Como la discretización asigna un único valor binario a cada ventana, esos eventos se representan como uno solo y se pierden distinciones entre spikes. Para limitar esta pérdida, primero se detectan los tiempos de los spikes a partir de los cruces del umbral. En cada canal se calcula la menor separación temporal entre spikes consecutivos, que sirve como inicio del barrido individual. A partir de ahí, la ventana aumenta en pasos de $0{,}1\,\mathrm{ms}$. En cada paso, los spikes que caen en una misma ventana se cuentan como un único evento. La pérdida relativa se calcula como
+
+$$
+L(\Delta t) =
+\frac{S_{\mathrm{total}} - S(\Delta t)}{S_{\mathrm{total}}}\times 100\,\%,
+$$
+
+donde $S_{\mathrm{total}}$ es el número total de spikes detectados antes de agruparlos en ventanas y $S(\Delta t)$ es el número de eventos que quedan representados al discretizar con la ventana $\Delta t$. El barrido se detiene cuando la pérdida supera el $5\,\%$; se selecciona como límite superior la última ventana evaluada cuya pérdida no supera ese porcentaje. Tanto la separación mínima como el límite superior se calculan por canal y estado, y pueden diferir entre ellos. Los valores obtenidos son:
+
+| Estado | Canal | Separación mínima entre spikes (ms) | Límite superior individual (ms) |
+|:--|:--|--:|--:|
+| Control | LP | 1,35 | 14,35 |
+| Control | VD | 0,35 | 12,85 |
+| GABA | LP | 0,40 | 14,00 |
+| GABA | VD | 6,05 | 13,65 |
+| Recuperación | LP | 1,95 | 14,35 |
+| Recuperación | VD | 0,35 | 12,55 |
+
+El cálculo de información mutua requiere comparar palabras construidas a partir del mismo número de ventanas en ambos canales. Por ello, para cada estado se usa un único intervalo común. Su límite inferior es la menor de las dos separaciones mínimas entre spikes, y el superior se obtiene con un barrido común, conservando solo ventanas para las que la pérdida no supera el $5\,\%$ en ninguno de los canales:
+
+$$
+\Delta t_{\min,\mathrm{común}} =
+\min\!\left(\Delta t_{\min,\mathrm{VD}},
+           \Delta t_{\min,\mathrm{LP}}\right).
+$$
+
+| Estado | Inicio común (ms) | Última ventana común admisible (ms) | Pérdida LP (%) | Pérdida VD (%) | Intervalo evaluado  |
+|:--|--:|--:|--:|--:|:--|
+| Control | 0,35 | 12,85 | 2,46 | 4,86 | 0,35–12,85 ms |
+| GABA | 0,40 | 13,60 | 4,17 | 4,83 | 0,40–13,65 ms |
+| Recuperación | 0,35 | 12,55 | 2,17 | 4,86 | 0,35–12,55 ms |
+
+En cada estado, ambos canales se discretizan con cada uno de los tamaños de ventana de su intervalo común, de modo que sus secuencias quedan alineadas y tienen la misma longitud. Los intervalos pueden diferir entre estados porque dependen de los spikes registrados en cada uno.
+
+Este criterio define el intervalo admisible de ventanas, pero no determina por sí solo cuál ofrece la mejor estimación de información mutua. Para ello, se calcula la información mutua a lo largo del intervalo común y se analiza cómo varía con $\Delta t$.
 
 ### Registro de eventos (spikes)
 
 Una vez definida la ventana temporal, cada registro se divide en ventanas y se etiqueta cada una con un valor binario. Sin embargo, que una ventana contenga muestras por encima del umbral no basta para declararla como spike: puede contener solo el flanco ascendente o descendente de un evento.
 
-Para caracterizar un spike, el detector busca tres muestras de tal manera que dos de ellas igualen o superen el umbral y una muestra central estrictamente mayor que ambos. Si para el análisis concideramos la función de potencial como una función continua, estas condiciones nos garantizan que la funcion es concava en el sub-intervalo de las muestras, ademas garantiza que en el mismo intervalo deben existir valores simetricos y por el teorema de Rolle un maximo local, no necesariemente la muestra central. En otras palabras, para algún desplazamiento $d > 0$ y una posición central $m$, se requiere que
+Para caracterizar un spike, el detector busca tres muestras de tal manera que dos de ellas igualen o superen el umbral y una muestra central estrictamente mayor que ambos. Si para el análisis consideramos la función de potencial como una función continua, estas condiciones nos garantizan que la función es cóncava en el sub-intervalo de las muestras, además garantiza que en el mismo intervalo deben existir valores simetricos y por el teorema de Rolle un máximo local, no necesariemente la muestra central. En otras palabras, para algún desplazamiento $d > 0$ y una posición central $m$, se requiere que
 
 $$
 x[m-d] \geq \theta, \qquad x[m+d] \geq \theta, \qquad
 x[m] > \max\bigl(x[m-d], x[m+d]\bigr),
 $$
 
-donde $x$ es la señal y $\theta$ el umbral del canal. La muestra central representa la concavidad; las otras dos confirman que la señal aciende y deciende dentro de la ventana. Basta con que exista un triplete que cumpla estas condiciones para etiquetar la ventana como spike. Por ello, una subida que continúa hasta el final de la ventana no se acepta: todavía no hay un flanco de bajada que permita verificar el pico.
+donde $x$ es la señal y $\theta$ el umbral del canal. La muestra central representa la concavidad; las otras dos confirman que la señal asciende y desciende dentro de la ventana. Basta con que exista un triplete que cumpla estas condiciones para etiquetar la ventana como spike. Por ello, una subida que continúa hasta el final de la ventana no se acepta: todavía no hay un flanco de bajada que permita verificar el pico.
 
 ![Casos de detección de spikes en ventanas temporales](resources/spike_detection_cases.svg)
 
@@ -153,7 +189,7 @@ Sea $X^N$ la palabra de VD y $Y^N$ la palabra de LP observadas en el mismo conju
 
 $$
 C_N(x_N,y_N) = \sum_{t=1}^{T-N+1}
-  \mathbb{1}\!\left[x_N^{(t)}=x_N \,\wedge\, y_N^{(t)}=y_N\right],
+  \mathbb{1}\!\left[X_N^{(t)}=x_N \,\wedge\, Y_N^{(t)}=y_N\right],
 $$
 
 de modo que
