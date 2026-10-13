@@ -19,6 +19,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from DataManager import DataManager, SAMPLE_INTERVAL
 
@@ -588,7 +589,7 @@ class EventExperiment:
             prefix = key[:-1]
             self.marginal_counts[prefix] = self.marginal_counts.get(prefix, 0) + value
         self.word_distribution = WordDistribution(
-            {key: value / self.total_count for key, value in self.marginal_counts.items()}
+            {key: value / self.total_count for key, value in self.counts.items()}
         )
         self.block_entropy = self._entropy_from_counts(self.counts)
 
@@ -726,9 +727,112 @@ def _pairwise_context_mutual_information(
     return max(0.0, left_entropy + right_entropy - joint_entropy)
 
 
+def plot_experiment_sweep(
+    experiment_paths: Sequence[str | Path],
+    state_name: str,
+    admissible_interval: tuple[float, float] | None = None,
+) -> None:
+    """Plot mutual information and channel-normalized MI across sweep results.
+
+    Each figure contains one panel per word length. Metrics and plotting
+    labels are read from the EventExperiment JSON files.
+    """
+    rows = []
+    for experiment_path in experiment_paths:
+        with Path(experiment_path).open(encoding="utf-8") as file:
+            payload = json.load(file)
+        pair = payload["pairwise_mutual_information"][0]
+        normalized = payload["pairwise_normalized_mutual_information"][0]
+        rows.append(
+            {
+                "window_ms": float(payload["config"]["simple_event"]["window"]),
+                "word_length": int(payload["config"]["word_length"]),
+                "channels": pair["channels"],
+                "mutual_information_bits": float(pair["bits"]),
+                "normalized": {
+                    key.removeprefix("nmi_normalized_by_"): float(value)
+                    for key, value in normalized.items()
+                    if key.startswith("nmi_normalized_by_")
+                },
+            }
+        )
+    if not rows:
+        raise ValueError("At least one experiment JSON path is required.")
+
+    channel_names = rows[0]["channels"]
+    normalization_names = list(rows[0]["normalized"])
+    if len(channel_names) != 2 or not normalization_names:
+        raise ValueError(
+            "Experiment JSON must contain pairwise MI and normalized MI for two channels."
+        )
+    if any(
+        row["channels"] != channel_names
+        or list(row["normalized"]) != normalization_names
+        for row in rows
+    ):
+        raise ValueError("All experiment JSON files must use the same channel pair.")
+
+    metrics = [
+        ("mutual_information_bits", "Información mutua (bits)", "Información mutua"),
+        *[
+            (
+                f"normalized:{stimulus_channel}",
+                f"IM normalizada (bits / H({stimulus_channel}))",
+                (
+                    f"Transferencia de información: estímulo "
+                    f"{stimulus_channel} "
+                    f"→ respuesta "
+                    f"{next(name for name in channel_names if name != stimulus_channel)}"
+                ),
+            )
+            for stimulus_channel in normalization_names
+        ],
+    ]
+    word_lengths = sorted({row["word_length"] for row in rows})
+    for metric_name, ylabel, metric_title in metrics:
+        fig, axes = plt.subplots(
+            4,
+            2,
+            figsize=(12, 14),
+            sharex=True,
+            squeeze=False,
+        )
+        for word_length, ax in zip(word_lengths, axes.flat):
+            word_rows = sorted(
+                (row for row in rows if row["word_length"] == word_length),
+                key=lambda row: row["window_ms"],
+            )
+            windows = [row["window_ms"] for row in word_rows]
+            values = [
+                row["mutual_information_bits"]
+                if metric_name == "mutual_information_bits"
+                else row["normalized"][metric_name.split(":", 1)[1]]
+                for row in word_rows
+            ]
+            if admissible_interval is not None:
+                lower, upper = admissible_interval
+                ax.axvspan(lower, upper, color="tab:green", alpha=0.10)
+                ax.axvline(lower, color="tab:green", linestyle="--", linewidth=0.8)
+                ax.axvline(upper, color="tab:green", linestyle="--", linewidth=0.8)
+            ax.plot(windows, values, marker="o", markersize=3)
+            ax.set_title(f"Palabra N={word_length}")
+            ax.set_xlabel("Ventana (ms)")
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3)
+        for ax in axes.flat[len(word_lengths) :]:
+            ax.set_visible(False)
+        fig.suptitle(
+            f"{state_name}: {metric_title} entre {channel_names[0]} y {channel_names[1]}"
+        )
+        fig.tight_layout()
+        plt.show()
+        plt.close(fig)
+
+
 __all__ = [
     "EventConfig",
     "EventExperiment",
     "SimpleEventConfig",
     "WordDistribution",
+    "plot_experiment_sweep",
 ]
