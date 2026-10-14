@@ -1,7 +1,9 @@
 import math
+import json
 from collections import Counter
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from EventExperiment import (
@@ -9,6 +11,7 @@ from EventExperiment import (
     EventExperiment,
     SimpleEventConfig,
     _pairwise_context_mutual_information,
+    plot_comparative_mutual_information,
 )
 
 
@@ -113,3 +116,74 @@ def test_manager_experiment_stores_normalization_by_the_matching_channel(tmp_pat
     assert math.isclose(mutual_information, 0.31127812445913283, abs_tol=1e-12)
     assert math.isclose(normalized["LP"], mutual_information / entropies["LP"])
     assert math.isclose(normalized["VD"], mutual_information / entropies["VD"])
+
+
+def test_comparative_mutual_information_plots_three_states_for_word_lengths_1_to_8(
+    tmp_path,
+    monkeypatch,
+):
+    experiment_paths_by_state = {}
+    for state_index, state_name in enumerate(("Control", "GABA", "Recuperación")):
+        paths = []
+        for word_length in range(1, 9):
+            for window_ms in (0.1, 1.1):
+                path = tmp_path / (
+                    f"{state_index}_{word_length}_{window_ms}.json"
+                )
+                payload = {
+                    "config": {
+                        "word_length": word_length,
+                        "simple_event": {"window": window_ms},
+                    },
+                    "pairwise_mutual_information": [
+                        {
+                            "channels": ["LP", "VD"],
+                            "bits": state_index + word_length + window_ms,
+                        }
+                    ],
+                    "pairwise_normalized_mutual_information": [
+                        {
+                            "nmi_normalized_by_LP": (
+                                state_index + word_length + window_ms
+                            )
+                            / 100,
+                            "nmi_normalized_by_VD": (
+                                state_index + word_length + window_ms
+                            )
+                            / 200,
+                        }
+                    ],
+                }
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                paths.append(path)
+        experiment_paths_by_state[state_name] = paths
+
+    figures = []
+    monkeypatch.setattr(plt, "show", lambda: figures.append(plt.gcf()))
+
+    plot_comparative_mutual_information(experiment_paths_by_state)
+
+    assert len(figures) == 3
+    for figure in figures:
+        axes = figure.axes
+        assert len(axes) == 8
+        assert all(len(ax.lines) == 3 for ax in axes)
+        assert [line.get_label() for line in axes[0].lines] == [
+            "Control",
+            "GABA",
+            "Recuperación",
+        ]
+        assert [line.get_xdata().tolist() for line in axes[0].lines] == [
+            [0.1, 1.1],
+            [0.1, 1.1],
+            [0.1, 1.1],
+        ]
+    assert "estímulo LP" in figures[1]._suptitle.get_text()
+    assert "respuesta VD" in figures[1]._suptitle.get_text()
+    assert "estímulo VD" in figures[2]._suptitle.get_text()
+    assert "respuesta LP" in figures[2]._suptitle.get_text()
+    legend_y = figures[0].legends[0].get_bbox_to_anchor()
+    legend_y = legend_y.transformed(figures[0].transFigure.inverted()).y1
+    assert legend_y < figures[0]._suptitle.get_position()[1]
+    for figure in figures:
+        plt.close(figure)

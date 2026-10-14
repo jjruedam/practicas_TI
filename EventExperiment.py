@@ -829,10 +829,160 @@ def plot_experiment_sweep(
         plt.close(fig)
 
 
+def plot_comparative_mutual_information(
+    experiment_paths_by_state: Mapping[str, Sequence[str | Path]],
+) -> None:
+    """Plot the mutual-information sweeps for three states in one 4x2 figure."""
+    if len(experiment_paths_by_state) != 3:
+        raise ValueError("Exactly three states must be provided for comparison.")
+
+    rows_by_state: dict[str, list[dict[str, Any]]] = {}
+    channel_names: list[str] | None = None
+    expected_word_lengths = set(range(1, 9))
+
+    for state_name, experiment_paths in experiment_paths_by_state.items():
+        rows: list[dict[str, Any]] = []
+        seen_points: set[tuple[int, float]] = set()
+        for experiment_path in experiment_paths:
+            with Path(experiment_path).open(encoding="utf-8") as file:
+                payload = json.load(file)
+            pair = payload["pairwise_mutual_information"][0]
+            channels = pair["channels"]
+            if channel_names is None:
+                channel_names = channels
+            elif channels != channel_names:
+                raise ValueError(
+                    "All experiment JSON files must use the same channel pair."
+                )
+
+            window_ms = float(payload["config"]["simple_event"]["window"])
+            word_length = int(payload["config"]["word_length"])
+            point = (word_length, window_ms)
+            if point in seen_points:
+                raise ValueError(
+                    f"Duplicate experiment for {state_name}, "
+                    f"N={word_length}, window={window_ms:g} ms."
+                )
+            seen_points.add(point)
+            rows.append(
+                {
+                    "window_ms": window_ms,
+                    "word_length": word_length,
+                    "mutual_information_bits": float(pair["bits"]),
+                    "normalized": {
+                        key.removeprefix("nmi_normalized_by_"): float(value)
+                        for key, value in payload[
+                            "pairwise_normalized_mutual_information"
+                        ][0].items()
+                        if key.startswith("nmi_normalized_by_")
+                    },
+                }
+            )
+
+        word_lengths = {row["word_length"] for row in rows}
+        if word_lengths != expected_word_lengths:
+            raise ValueError(
+                f"State {state_name!r} must include word lengths 1 through 8."
+            )
+        rows_by_state[state_name] = rows
+
+    if channel_names is None or len(channel_names) != 2:
+        raise ValueError(
+            "Experiment JSON must contain mutual information for two channels."
+        )
+    normalization_names = set(rows_by_state[next(iter(rows_by_state))][0]["normalized"])
+    if normalization_names != set(channel_names):
+        raise ValueError(
+            "Experiment JSON must contain normalized MI for both channels."
+        )
+    if any(
+        set(row["normalized"]) != normalization_names
+        for rows in rows_by_state.values()
+        for row in rows
+    ):
+        raise ValueError(
+            "All experiment JSON files must contain normalized MI for both channels."
+        )
+
+    metrics = [
+        (
+            "mutual_information_bits",
+            "Información mutua (bits)",
+            (
+                f"Comparación de la información mutua entre "
+                f"{channel_names[0]} y {channel_names[1]}"
+            ),
+        ),
+        *[
+            (
+                f"normalized:{stimulus_channel}",
+                f"IM normalizada (I / H({stimulus_channel}))",
+                (
+                    f"IM normalizada: estímulo {stimulus_channel} "
+                    f"→ respuesta "
+                    f"{next(name for name in channel_names if name != stimulus_channel)}"
+                ),
+            )
+            for stimulus_channel in channel_names
+        ],
+    ]
+    colors = ("tab:blue", "tab:orange", "tab:green")
+    for metric_name, ylabel, figure_title in metrics:
+        fig, axes = plt.subplots(
+            4,
+            2,
+            figsize=(12, 14),
+            sharex=True,
+            squeeze=False,
+        )
+        for word_length, ax in zip(range(1, 9), axes.flat):
+            for (state_name, rows), color in zip(rows_by_state.items(), colors):
+                word_rows = sorted(
+                    (
+                        row
+                        for row in rows
+                        if row["word_length"] == word_length
+                    ),
+                    key=lambda row: row["window_ms"],
+                )
+                values = [
+                    row["mutual_information_bits"]
+                    if metric_name == "mutual_information_bits"
+                    else row["normalized"][metric_name.split(":", 1)[1]]
+                    for row in word_rows
+                ]
+                ax.plot(
+                    [row["window_ms"] for row in word_rows],
+                    values,
+                    marker="o",
+                    markersize=3,
+                    color=color,
+                    label=state_name,
+                )
+            ax.set_title(f"Palabra N={word_length}")
+            ax.set_xlabel("Ventana (ms)")
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3)
+
+        handles, labels = axes.flat[0].get_legend_handles_labels()
+        fig.suptitle(figure_title, y=0.99)
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.955),
+            ncol=3,
+        )
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        plt.show()
+        plt.close(fig)
+
+
 __all__ = [
     "EventConfig",
     "EventExperiment",
     "SimpleEventConfig",
     "WordDistribution",
+    "plot_comparative_mutual_information",
     "plot_experiment_sweep",
 ]
