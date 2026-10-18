@@ -265,15 +265,48 @@ Para cada estado se realizaron 168 experimentos: ocho longitudes de palabra ($N=
 
 ![Información mutua entre LP y VD en estado de recuperación](resources/mutual_information_trozor.png)
 
-En los tres estados, las curvas de información mutua aumentan a medida que crece la ventana en todo el intervalo representado, tanto dentro como fuera de la zona sombreada. No se observa un máximo seguido de una disminución hasta 20,1 ms. Por tanto, estos barridos no identifican un máximo de información mutua ni justifican seleccionar 20,1 ms como ventana óptima. Las ventanas fuera del sombreado son exploratorias y no satisfacen el criterio de retener al menos el 95 % de los spikes en cada canal.
+En los tres estados se observa un aumento de la información mutua estimada al incrementar la ventana temporal, para todas las longitudes de palabra consideradas. Asimismo, la información mutua aumenta con el tamaño de palabra \(N\). Esto puede estar relacionado con que las palabras más largas permiten representar patrones temporales más complejos, pero también dan lugar a un mayor número de combinaciones posibles. Como consecuencia, para un número fijo de observaciones, se dispone de menos muestras para estimar las probabilidades de cada patrón, lo que puede afectar a la precisión de la estimación de la información mutua.
 
-Para comparar los estados con el mismo tamaño de ventana, 12,1 ms es el último punto muestreado que cae dentro de los tres intervalos admisibles. En ese punto, para cada tamaño de palabra de 1 a 8, la información mutua estimada sigue el orden control > recuperación > GABA. Como ejemplos visibles en las curvas, para $N=1$ se obtienen 0,0345 bits en control, 0,0299 en recuperación y 0,0261 durante GABA; para $N=4$, 0,1057, 0,0942 y 0,0916 bits, respectivamente; y para $N=8$, 0,1838, 0,1822 y 0,1791 bits. La diferencia entre condiciones es menor en este último caso.
+La tendencia creciente respecto a la ventana temporal se mantiene tanto dentro como fuera de los intervalos admisibles, y no se observa un máximo seguido de una disminución en el rango representado. Por tanto, los barridos realizados no permiten identificar un máximo de información mutua ni justificar la elección de 20,1 ms como ventana óptima. No obstante, esto no implica que sea conveniente seguir aumentando el tamaño de la ventana para buscar dicho máximo. Fuera de los intervalos admisibles se supera el límite de pérdida del 5 % de los spikes establecido para cada canal, por lo que las estimaciones dejan de cumplir el criterio definido para el análisis. Además, al aumentar la ventana, se dispone de menos observaciones válidas y las probabilidades estimadas de los patrones pueden representar cada vez peor su distribución real. En consecuencia, aunque la información mutua estimada podría acabar disminuyendo para ventanas mayores, esta disminución podría deberse a las limitaciones de la estimación y no necesariamente a una reducción real de la dependencia estadística entre las neuronas.
 
-En términos intuitivos, una información mutua mayor indica que los patrones observados en una neurona permiten conocer mejor los patrones simultáneos de la otra; una información mutua menor indica que comparten menos información estadística en la representación analizada. Así, en la comparación a 12,1 ms, las curvas sugieren que la actividad de LP y VD está más estrechamente asociada en control, que esa asociación disminuye durante la inyección de GABA y que se recupera parcialmente después. La recuperación se aproxima a control, especialmente para palabras largas, aunque no lo iguala en todos los tamaños. 
+Por ello, no sería adecuado prolongar el barrido únicamente hasta encontrar un máximo, ya que este podría reflejar los errores de estimación asociados a la escasez de datos y a la pérdida de spikes, en lugar de una característica real del sistema. En consecuencia, no es posible determinar un tamaño de ventana que maximice la información mutua a partir de los barridos realizados sin comprometer el criterio establecido de limitar al 5 % la pérdida de spikes en cada canal.
 
-La IM normalizada expresa qué fracción de la entropía del estímulo comparte con la respuesta. A 12,1 ms, los resultados oscilan aproximadamente entre el 3,6 y el 6,0 % para LP→VD y entre el 5,2 y el 7,5 % para VD→LP; esto sugiere una asociación relativa algo mayor en esta última dirección, sin implicar causalidad.
+**Información mutua comparativa entre estados**
 
-Las curvas también muestran valores de información mutua mayores para palabras más largas. Cada incremento de $N$ amplía la duración temporal que representa una palabra, por lo que esos valores corresponden a escalas distintas y no deben interpretarse como una comparación a escala temporal constante. Al crecer $N$ también aumenta el número de patrones posibles y disminuye el número de posiciones disponibles, aspectos que conviene tener presentes al interpretar las estimaciones.
+![Comparación de la información mutua entre los estados de control, GABA y recuperación](resources/mutual_information_comparativa_estados.png)
+
+La información mutua mide cuánto se reduce la incertidumbre sobre una variable aleatoria al conocer el valor de la otra. En este caso, indica hasta qué punto conocer la palabra de una neurona permite reducir la incertidumbre sobre la palabra de la otra. Por tanto, una mayor información mutua refleja una mayor dependencia estadística entre las representaciones de ambas neuronas.
+
+Para comparar los tres estados bajo las mismas condiciones, se considera una ventana de 12,1 ms, correspondiente al último valor muestreado incluido en los intervalos admisibles de las tres condiciones. La tabla muestra la información mutua estimada para cada tamaño de palabra y estado:
+
+| Tamaño de palabra \(N\) | Control (bits) | GABA (bits) | Recuperación (bits) |
+|---:|---:|---:|---:|
+| 1 | 0,0345 | 0,0261 | 0,0299 |
+| 2 | 0,0746 | 0,0607 | 0,0635 |
+| 3 | 0,0916 | 0,0777 | 0,0803 |
+| 4 | 0,1057 | 0,0916 | 0,0942 |
+| 5 | 0,1210 | 0,1072 | 0,1106 |
+| 6 | 0,1391 | 0,1264 | 0,1304 |
+| 7 | 0,1597 | 0,1504 | 0,1539 |
+| 8 | 0,1838 | 0,1791 | 0,1822 |
+
+Los resultados muestran que la información mutua es mayor en el estado de control que durante la inyección de GABA, lo que indica que, en las condiciones iniciales, las palabras de ambas neuronas presentan una mayor asociación estadística. La disminución observada durante la inyección podría estar relacionada con la perturbación externa introducida por el GABA, que modificaría la dinámica del sistema y reduciría la dependencia estadística entre ambas señales.
+
+Durante la recuperación, la información mutua aumenta respecto al estado de inyección de GABA, aunque se mantiene por debajo de los valores de control. Este comportamiento es compatible con una recuperación parcial de la asociación estadística entre las neuronas tras cesar la perturbación, sin que se alcancen por completo los niveles iniciales. En conjunto, los resultados sugieren una disminución de la dependencia estadística durante la inyección de GABA y una recuperación posterior parcial. No obstante, la información mutua por sí sola no permite establecer una relación causal entre las neuronas ni atribuir exclusivamente al GABA los cambios observados.
+
+**IM normalizada comparativa: estímulo LP → respuesta VD**
+
+![Información mutua normalizada comparativa entre estados, considerando LP como estímulo y VD como respuesta](resources/mutual_information_normalizada_LP_estimulo.png)
+
+**IM normalizada comparativa: estímulo VD → respuesta LP**
+
+![Información mutua normalizada comparativa entre estados, considerando VD como estímulo y LP como respuesta](resources/mutual_information_normalizada_VD_estimulo.png)
+
+La información mutua normalizada ($I/H_{\text{estímulo}}$) permite evaluar la proporción de la incertidumbre del estímulo que es explicada por la respuesta entre el par neuronal. En ambas direcciones de análisis ($\text{VD} \to \text{LP}$ y $\text{LP} \to \text{VD}$), se observa una reducción constante de la IM normalizada tras la aplicación de GABA en comparación con el estado Control, efecto que se revierte parcialmente durante la fase de Recuperación.
+
+Al evaluar ventanas temporales intermedias (p. ej., a 12,1 ms), los valores de IM normalizada oscilan aproximadamente entre el 3,6 % y el 6,0 % para $\text{LP} \to \text{VD}$, y entre el 5,2 % y el 7,5 % para $\text{VD} \to \text{LP}$. Esta mayor magnitud relativa al considerar VD como estímulo sugiere una representación informativa más concentrada en la respuesta de LP. No obstante, dado que la información mutua no dirigida es una medida simétrica ($I(X;Y) = I(Y;X)$), las diferencias observadas al normalizar derivan exclusivamente del denominador ($H(\text{VD}) < H(\text{LP})$) y no constituyen por sí mismas una evidencia direccional o de transferencia causal de información.
+
+Asimismo, el incremento en la longitud de palabra ($N=1$ a $N=8$) pone de manifiesto dinámicas temporales no lineales, caracterizadas por la aparición de una meseta intermedia en ventanas de 3 a 10 ms antes de continuar su crecimiento en ventanas más prolongadas. Cabe destacar que en la dirección $\text{VD} \to \text{LP}$, la fase de Recuperación alcanza niveles muy próximos al Control para palabras largas ($N \ge 7$) en ventanas amplias, un fenómeno que se muestra menos pronunciado en la dirección inversa.
 
 ### Segunda discretización
 

@@ -791,9 +791,9 @@ def plot_experiment_sweep(
     word_lengths = sorted({row["word_length"] for row in rows})
     for metric_name, ylabel, metric_title in metrics:
         fig, axes = plt.subplots(
-            4,
             2,
-            figsize=(12, 14),
+            4,
+            figsize=(20, 8),
             sharex=True,
             squeeze=False,
         )
@@ -929,9 +929,9 @@ def plot_comparative_mutual_information(
     colors = ("tab:blue", "tab:orange", "tab:green")
     for metric_name, ylabel, figure_title in metrics:
         fig, axes = plt.subplots(
-            4,
             2,
-            figsize=(12, 14),
+            4,
+            figsize=(18, 8),
             sharex=True,
             squeeze=False,
         )
