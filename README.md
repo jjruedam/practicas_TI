@@ -71,24 +71,24 @@ Cada experimento se divide en tres fases, que se corresponden con las condicione
 Tras cada experimento se deja un periodo de 10 minutos para la recuperación total de la preparación antes de repetir el protocolo con otra modalidad. Los ficheros de datos del repositorio (TrozoC, TrozoG, TrozoR) corresponden a estas tres fases: control, GABA y recuperación, agrupados en cadenas por condición.
 
 
-## Tratamiento de datos
+## Tipo de discretización 1: codificación binaria de spikes
 
-El objetivo del tratamiento de los datos es transformar las señales, originalmente pseudocontinuas, en representaciones discretas que permitan calcular la entropía y la información mutua entre canales. Para ello, se aplican dos técnicas de discretización que extraen características distintas de las señales.
+### Tratamiento de datos
 
-El primer método, la detección de eventos, parte de la hipótesis de que la información relevante está contenida en los spikes. En las secciones siguientes describimos cómo se identifican. De forma intuitiva, el método divide cada registro en ventanas de tiempo fijas y representa cada ventana con un valor binario: 1 si contiene un spike y 0 si no lo contiene.
+El objetivo del tratamiento de los datos es transformar las señales, originalmente pseudocontinuas, en representaciones discretas que permitan calcular la entropía y la información mutua entre canales. En este trabajo se consideran dos modelos de discretización, que se presentan por separado.
 
-> Pendiente: describir el segundo método de discretización.
+Este primer método parte del supuesto de que los eventos que contienen la información relevante son los spikes. Cada registro se divide en ventanas temporales y cada una se representa con un valor binario: 1 si contiene un spike y 0 si no lo contiene. A partir de las frecuencias de aparición de las palabras formadas por estos símbolos se estiman sus probabilidades. En las secciones siguientes se describe cómo se detectan los spikes y cómo se realiza el cálculo.
 
 La discretización permite construir n-gramas para calcular la entropía y la información mutua. El análisis se centra en la evolución de la entropía de bloque de cada canal y de la información mutua entre VD y LP, por separado para las tres fuentes de datos, a medida que aumenta la longitud de los n-gramas.
 
-### Descripción de los datos
+#### Descripción de los datos
 
 Para cada condición del experimento se obtienen dos canales simultáneos, LP y VD, con trenes de spikes agrupados en bursts rítmicos claramente identificables. Las señales se muestrean a 0,1 ms por muestra y se segmentan en grabaciones de 100 000 muestras para el análisis, como se puede ver en la imagen.
 
 
 ![Registro original de ejemplo](resources/raw_record.png)
 
-### Umbral de detección de spikes
+#### Umbral de detección de spikes
 
 Como se observa en la imagen, los spikes corresponden a variaciones extremas del potencial eléctrico respecto de la actividad habitual del canal. Por tanto, es posible distinguirlos mediante un umbral que identifique los valores asociados a estos eventos. Un umbral adecuado debe considerar tanto el comportamiento general de la señal como sus valores extremos. Desde el punto de vista estadístico, esto puede expresarse como una combinación de una medida de tendencia central y otra de los valores extremos.
 
@@ -121,7 +121,7 @@ Con las siguientes tablas se puede hacer una comparación del resultado de esta 
 
 **Nota.** `mean_max_global` es un vector con un umbral por canal de la fuente de datos. En este informe, el nombre puede referirse al vector o al umbral de un canal concreto; el contexto permite distinguir ambos casos.
 
-### Ventana temporal para la discretización
+#### Ventana temporal para la discretización
 
 La duración de la ventana temporal, $\Delta t$, determina la resolución con la que se representa cada tren de spikes mediante una secuencia binaria. Los registros se muestrean cada $0{,}1\,\mathrm{ms}$, que es el incremento empleado en el barrido de ventanas.
 
@@ -161,7 +161,7 @@ En cada estado, ambos canales se discretizan con cada uno de los tamaños de ven
 
 Este criterio define el intervalo admisible de ventanas, pero no determina por sí solo cuál ofrece la mejor estimación de información mutua. Para ello, se calcula la información mutua a lo largo del intervalo común y se analiza cómo varía con $\Delta t$.
 
-### Registro de eventos (spikes)
+#### Registro de eventos (spikes)
 
 Una vez definida la ventana temporal, cada registro se divide en ventanas y se etiqueta cada una con un valor binario. Sin embargo, que una ventana contenga muestras por encima del umbral no basta para declararla como spike: puede contener solo el flanco ascendente o descendente de un evento.
 
@@ -181,7 +181,7 @@ En el borde entre ventanas, el detector añade las dos primeras muestras de la v
 Esta verificación es importante porque la discretización convierte la señal en una secuencia de presencia/ausencia de spikes. Si cualquier cruce del umbral se contara como evento, fragmentos de spikes sin pico producirían falsos positivos. Estos alterarían las frecuencias de los n-gramas y, por tanto, las estimaciones de entropía e información mutua.
 
 
-### N-gramas e información mutua
+#### N-gramas e información mutua
 
 El análisis de detección de eventos parte de la hipótesis de que el ritmo del generador central de patrones (CPG) se establece mediante la comunicación entre las neuronas del STNS, en la que participan VD y LP. Una representación binaria de cada ventana conserva si hubo o no un spike, pero no describe el orden de los eventos ni posibles dependencias temporales. Para estudiar esos patrones, agrupamos símbolos consecutivos en palabras de longitud $N$, también llamadas $N$-gramas.
 
@@ -247,21 +247,21 @@ $$
 
 Aunque la información mutua es simétrica, estas dos cantidades normalizadas pueden diferir porque usan entropías marginales distintas. Describen información compartida relativa; por sí solas no demuestran una relación causal ni estiman una transferencia dirigida entre las neuronas.
 
-## Resultados
+### Resultados
 
-### Conclusiones de los barridos de información mutua
+#### Conclusiones de los barridos de información mutua
 
 Para cada estado se realizaron 168 experimentos: ocho longitudes de palabra ($N=1,\ldots,8$) y 21 ventanas entre 0,1 y 20,1 ms, espaciadas 1 ms. Las figuras muestran la información mutua estimada, en bits, entre las palabras binarias alineadas de LP y VD. El sombreado verde representa el intervalo de ventana admisible obtenido con el criterio de pérdida máxima del 5 % de spikes en ambos canales.
 
-#### Estado de control
+##### Estado de control
 
 ![Información mutua entre LP y VD en estado de control](resources/mutual_information_trozoc.png)
 
-#### Estado de inyección de GABA
+##### Estado de inyección de GABA
 
 ![Información mutua entre LP y VD durante la inyección de GABA](resources/mutual_information_trozog.png)
 
-#### Estado de recuperación
+##### Estado de recuperación
 
 ![Información mutua entre LP y VD en estado de recuperación](resources/mutual_information_trozor.png)
 
@@ -308,11 +308,133 @@ Al evaluar ventanas temporales intermedias (p. ej., a 12,1 ms), los valores de I
 
 Asimismo, el incremento en la longitud de palabra ($N=1$ a $N=8$) pone de manifiesto dinámicas temporales no lineales, caracterizadas por la aparición de una meseta intermedia en ventanas de 3 a 10 ms antes de continuar su crecimiento en ventanas más prolongadas. Cabe destacar que en la dirección $\text{VD} \to \text{LP}$, la fase de Recuperación alcanza niveles muy próximos al Control para palabras largas ($N \ge 7$) en ventanas amplias, un fenómeno que se muestra menos pronunciado en la dirección inversa.
 
-### Segunda discretización
+## Tipo de discretización 2: patrones de orden
 
-### Segunda estimación de la información mutua
+### Introducción a la Discretización por Patrones de Orden
+
+#### 1. ¿Qué son los patrones de orden?
+
+En el análisis de series temporales complejas y no lineales, la discretización por **patrones de orden** (o *ordinal patterns*), propuesta originalmente por Bandt y Pompe (2002), es una técnica que transforma una secuencia continua de observaciones numéricas en una cadena de símbolos discretos centrándose exclusivamente en el orden relativo de los puntos vecinos en lugar de sus amplitudes absolutas.
+
+Dado un registro continuo de voltaje $X = (x_1, x_2, \dots, x_T)$, se define un subvector de dimensión de orden $d$ (que evalúa $d+1$ puntos consecutivos) y un retardo temporal $\tau$:
+
+$$V(t) = [x_t, \, x_{t+\tau}, \, x_{t+2\tau}, \, \dots, \, x_{t+d\tau}]$$
+
+A este subvector $V(t)$ se le asigna un patrón ordinal único $\pi = (r_0, r_1, \dots, r_d)$, definido como la permutación de índices que ordena sus valores de menor a mayor en amplitud:
+
+$$x_{t+r_0\tau} \le x_{t+r_1\tau} \le \dots \le x_{t+r_d\tau}$$
+
+En aquellos casos donde dos o más muestras presentan amplitudes idénticas ($x_{r_{l-1}} = x_{r_l}$), el empate se rompe formalmente asignando precedencia al índice temporal menor ($r_{l-1} > r_l$) o introduciendo un parámetro de tolerancia al ruido $\eta$.
+
+Para una dimensión de orden $d$, existe un alfabeto finito constituido por $(d+1)!$ posibles permutaciones o formas geométricas locales (tales como pendientes crecientes, decrecientes, picos o valles). De este modo, la trayectoria de voltaje analógico de la neurona se convierte en una secuencia simbólica discreta cuya distribución de frecuencias refleja la estructura dinámica del sistema.
+
+---
+
+#### 2. Justificación de la elección de Patrones de Orden frente a SAX
+
+Aunque existen diversos métodos para la simbolización de series temporales, como la **Aproximación Simbólica Agregada (SAX)**, en este proyecto se ha optado por los patrones de orden debido a diferencias fundamentales en la naturaleza de la señal neuronal:
+
+* **Invarianza frente a la distribución global de datos:** SAX requiere una normalización previa de la serie temporal y la división del rango de voltajes en franjas o cuantiles basados en una distribución estadística prefijada. Si la serie presenta no-estacionariedades o variaciones bruscas en la amplitud entre fases experimentales (como ocurre entre las etapas de Control, GABA y Recuperación), las fronteras de los cuantiles en SAX pueden distorsionarse. Los patrones de orden, en cambio, operan de forma puramente local sin asumir distribuciones globales a priori.
+* **Captura de la geometría y dinámica local:** SAX clasifica los puntos según la región de amplitud que ocupan en el espacio de estados. Por el contrario, los patrones de orden capturan la morfología local de la onda (la forma y dirección del cambio entre muestras). En sistemas dinámicos no lineales, esta representación ordinal preserva las oscilaciones y tendencias locales de la membrana sin quedar acoplada a la escala global de amplitudes.
+* **Simplicidad y eficiencia computacional:** el cálculo de la representación por patrones de orden mediante el conteo de inversiones requiere únicamente $d$ comparaciones lógicas por muestra, lo que otorga al algoritmo una complejidad lineal $O(N)$ extremadamente rápida. Esto contrasta con el coste computacional derivado de calcular las medias de segmento (PAA) y los límites de cuantiles en ventanas extensas.
+
+---
+
+#### 3. Ventajas frente a la discretización por Umbral Binario ($0$ y $1$)
+
+Frente a la discretización convencional por umbral ($0$ para reposo y $1$ para *spike*), el método ordinal aporta notables ventajas teóricas y metodológicas para el cálculo de la Información Mutua:
+
+1. **Ausencia de umbrales arbitrarios:** la discretización binaria depende críticamente de la fijación manual de un umbral de voltaje. Pequeñas fluctuaciones por ruido en fases problemáticas pueden alterar significativamente la detección de disparos. Los patrones de orden no requieren calibrar ningún umbral de voltaje.
+2. **Invarianza ante transformaciones monótonas y deriva de la línea de base:** matemáticamente, para cualquier función estrictamente creciente $f$, el patrón ordinal de $X_t$ es idéntico al de $y_t = f(x_t)$. Esta propiedad inmuniza al análisis ordinal contra la deriva lenta de la línea de base (*baseline drift*) causada por los electrodos o cambios en la ganancia de los amplificadores.
+3. **Preservación de la dinámica sub-umbral:** El esquema binario colapsa toda la rica dinámica eléctrica de la neurona a un evento puntual (presencia o ausencia de *spike*), descartando la información contenida en las oscilaciones sub-umbrales, despolarizaciones previas e hiperpolarizaciones posteriores. Los patrones de orden conservan la información morfológica mediante un alfabeto de $(d+1)!$ símbolos.
+4. **Mayor robustez frente al ruido:** el ruido de medición gaussiano cercano al umbral arbitrario genera falsos positivos en el conteo de bits. En los patrones de orden, las pequeñas variaciones aleatorias no alteran el orden relativo de los puntos a menos que modifiquen la tendencia principal de la curva, proporcionando mayor estabilidad en la estimación de las probabilidades.
+
+### Tratamiento de datos
+
+Las series temporales originales del potencial eléctrico de membrana de las neuronas LP y VD están registradas a una frecuencia de muestreo de $10\,\text{kHz}$, lo que equivale a un intervalo entre muestras de $0{,}1\,\text{ms}$. Sin embargo, la dinámica fisiológica de un potencial de acción (*spike*) en estas neuronas se extiende a lo largo de aproximadamente $2\,\text{ms}$.
+
+Aplicar la discretización ordinal directamente sobre la escala de $0{,}1\,\text{ms}$ plantea un problema de sobremuestreo:
+* A esta resolución tan fina, tres o cuatro muestras consecutivas durante oscilaciones sub-umbral de reposo o derivas de voltaje generan las mismas secuencias ordinales (por ejemplo, patrones crecientes o decrecientes) que la fase ascendente o descendente de un *spike*.
+* Esto provoca que los patrones ordinales queden uniformemente distribuídos en el tiempo y no reconozcan los potenciales de acción como eventos informativamente significativos, resultando en valores de Información Mutua prácticamente nulos para dimensiones de orden bajas.
+
+#### Reducción de la resolución temporal (`media_por_ventana`)
+Para adecuar la escala de los datos a la duración real del *spike*, se aplica un preprocesamiento de promediado local mediante ventanas consecutivas no superpuestas de tamaño $n$:
+
+$$
+V_{\text{reducido}}[k] = \frac{1}{n}\sum_{i=1}^{n} V[(k-1)n+i]
+$$
+
+* **Selección del parámetro $n=10$ ($1\,\text{ms}$):** Tras comparar reducciones a $1\,\text{ms}$ ($n=10$), $1{,}5\,\text{ms}$ ($n=15$) y $2\,\text{ms}$ ($n=20$), se determinó que $n=10$ ($1\,\text{ms}$) es la resolución óptima.
+* **Justificación:** Incrementar la reducción por encima de $1\,\text{ms}$ ($n>10$) distorsiona la estructura biológica de la señal, generando la aparición de *spikes* falsos en la neurona LP o la supresión de *spikes* en la neurona VD por la rápida cancelación entre la despolarización y la hiperpolarización posterior.
+
+---
+
+### Construcción de los patrones de orden
+
+Dado un subvector de voltaje continuo de $d+1$ puntos consecutivos extraídos de la serie reducida,
+$V(t)=[v_t,v_{t+\tau},\dots,v_{t+d\tau}]$, se le asocia la permutación ordinal
+$\pi=(r_0,r_1,\dots,r_d)$ que ordena sus amplitudes de menor a mayor:
+
+$$
+v_{t+r_0\tau}\leq v_{t+r_1\tau}\leq\cdots\leq v_{t+r_d\tau}
+$$
+
+Para una dimensión de orden $d$, existen $(d+1)!$ patrones de orden posibles.
+
+#### Parámetros utilizados
+
+1. **Retardo temporal ($\tau=1$):** Se fija $\tau=1$ muestra de la serie reducida, equivalente a un intervalo de $1\,\text{ms}$.
+2. **Tratamiento de empates y tolerancia al ruido ($\eta$):** En caso de igualdad exacta de amplitud entre dos puntos ($v_i=v_j$), se rompe el empate asignando precedencia al índice temporal menor ($r_{l-1}>r_l$ si $x_{r_{l-1}}=x_{r_l}$). Para evitar que pequeñas oscilaciones causadas por ruido de cuantización alteren artificialmente los patrones, se emplea el parámetro de precisión de empates $\eta$ (`tie_precision`) en la librería `ordpy`.
+3. **Validación de la cota de datos ($N$):** Para garantizar una estimación insesgada de las probabilidades ordinales, la longitud total de la serie reducida $N$ debe cumplir la restricción matemática propuesta por Bandt & Pompe:
+
+   $$
+   5(d+1)! < N
+   $$
+
+   * Con $N\approx1.638.400$ muestras tras la reducción con $n=10$, se verifica que $5\times(7+1)!=201.600<N$, mientras que para $d=8$ tendríamos $5\times9!=1.814.400>N$.
+   * Por tanto, se establece **$d=7$** como la cota superior válida para el análisis.
+
+4. **Codificación simbólica y distribución conjunta:**
+   Cada una de las $(d+1)!$ permutaciones posibles de dimensión $d$ se mapea a un entero único en el rango $[0,(d+1)!-1]$. La secuencia conjunta entre las neuronas VD y LP se codifica combinando ambos índices:
+
+   $$
+   C_{\text{conjunto}}(t)
+   = C_{\text{VD}}(t)\,(d+1)! + C_{\text{LP}}(t)
+   $$
+
+   A partir de esta codificación se estiman las distribuciones marginales $P(\pi_{\text{VD}})$ y $P(\pi_{\text{LP}})$, y la distribución conjunta $P(\pi_{\text{VD}},\pi_{\text{LP}})$, para calcular las entropías de Shannon y la información mutua.
+
+#### Comportamiento según la dimensión $d$
+* **Dimensiones bajas ($d\leq6$):** La información mutua resulta cercana a cero debido a que las oscilaciones continuas de fondo de la membrana generan patrones muy equidistribuidos.
+* **Dimensión alta ($d=7$):** Permite construir palabras ordinales lo suficientemente largas como para diferenciar las formas de onda complejas asociadas a los *spikes* frente a la dinámica sub-umbral de reposo, capturando de forma representativa los eventos informativos entre ambas neuronas.
+
+#### Estimación de probabilidades e información mutua
+
+*Pendiente de documentar el cálculo de probabilidades, entropías e información mutua para esta discretización.*
+
+### Resultados
+
+#### Resultados por estado
+
+*Pendiente de incorporar los resultados de control, GABA y recuperación.*
+
+#### Comparación entre estados
+
+*Pendiente de añadir la comparación de la información mutua entre estados.*
+
+### Conclusiones
+
+*Pendiente de redactar las conclusiones correspondientes a los patrones de orden.*
 
 ## Referencias
+
+Bandt, C., & Pompe, B. (2002). Permutation entropy: A natural complexity measure for time series. *Physical Review Letters, 88*, 174102.
+
+Fadlallah, B., Chen, B., Keil, A., & Príncipe, J. C. (2013). Weighted-permutation entropy: A complexity measure for time series incorporating amplitude information. *Physical Review E, 87*, 022911.
+
+Keller, K., & Sinn, M. (2005). Ordinal analysis of time series. *Physica A: Statistical Mechanics and its Applications, 356*, 114.
+
+Keller, K., Unakafov, A. M., & Unakafova, V. A. (2014). Ordinal patterns, entropy, and EEG. *Entropy, 16*(12), 6212–6239. https://doi.org/10.3390/e16126212
 
 Cover, T. M., & Thomas, J. A. (2006). *Elements of information theory* (2nd ed.). Wiley. https://doi.org/10.1002/047174882X
 
