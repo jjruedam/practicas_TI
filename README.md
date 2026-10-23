@@ -357,15 +357,44 @@ Aplicar la discretización ordinal directamente sobre la escala de $0{,}1\,\text
 * A esta resolución tan fina, tres o cuatro muestras consecutivas durante oscilaciones sub-umbral de reposo o derivas de voltaje generan las mismas secuencias ordinales (por ejemplo, patrones crecientes o decrecientes) que la fase ascendente o descendente de un *spike*.
 * Esto provoca que los patrones ordinales queden uniformemente distribuídos en el tiempo y no reconozcan los potenciales de acción como eventos informativamente significativos, resultando en valores de Información Mutua prácticamente nulos para dimensiones de orden bajas.
 
-#### Reducción de la resolución temporal (`media_por_ventana`)
+#### Reducción de la resolución temporal (`mean_per_window`)
 Para adecuar la escala de los datos a la duración real del *spike*, se aplica un preprocesamiento de promediado local mediante ventanas consecutivas no superpuestas de tamaño $n$:
 
 $$
 V_{\text{reducido}}[k] = \frac{1}{n}\sum_{i=1}^{n} V[(k-1)n+i]
 $$
 
-* **Selección del parámetro $n=10$ ($1\,\text{ms}$):** Tras comparar reducciones a $1\,\text{ms}$ ($n=10$), $1{,}5\,\text{ms}$ ($n=15$) y $2\,\text{ms}$ ($n=20$), se determinó que $n=10$ ($1\,\text{ms}$) es la resolución óptima.
-* **Justificación:** Incrementar la reducción por encima de $1\,\text{ms}$ ($n>10$) distorsiona la estructura biológica de la señal, generando la aparición de *spikes* falsos en la neurona LP o la supresión de *spikes* en la neurona VD por la rápida cancelación entre la despolarización y la hiperpolarización posterior.
+#### <u>Métricas para la selección del tamaño de ventana ($n$)</u>
+
+Para evaluar cuantitativamente el efecto del tamaño de ventana $n$ sobre las trazas de voltaje de las neuronas LP y VD en las tres condiciones experimentales (Control, GABA y Recuperación), se realiza un barrido empírico en un rango continuo de $n$ analizando dos métricas complementarias en el dominio del tiempo:
+
+#### 1. Error Cuadrático Medio de Reconstrucción ($\mathrm{RMSE}$)
+Mide la pérdida de fidelidad de la señal al aproximar la serie continua original $x_t$ mediante una función en escalón $\hat{x}_t$, construida al repetir la media del bloque $k$ durante las $n$ muestras que lo componen:
+
+$$\mathrm{RMSE}(n) = \sqrt{\frac{1}{T}\sum_{t=1}^{T}(x_t - \hat{x}_t)^2}$$
+
+* **Interpretación:** Un $\mathrm{RMSE}$ menor indica una mayor fidelidad a la forma de onda original. A medida que $n$ aumenta, el $\mathrm{RMSE}$ crece de forma monótona debido a la pérdida de resolución temporal y detalles de alta frecuencia.
+
+#### 2. Voltaje Máximo Preservado ($V_{\max}$) y Combinación Convexa
+El valor $V_{\max}$ representa la amplitud máxima que sobrevive en la señal reducida tras el promediado. Puesto que la media de un bloque de $n$ muestras es una combinación convexa de sus elementos, el resultado está estrictamente acotado por el mínimo y el máximo de dicho bloque:
+
+$$\min_{i} x_i \le \bar{x}_k \le \max_{i} x_i$$
+
+* **Morfología del *spike*:** Un potencial de acción presenta un pico de despolarización de duración $m$ muestras ($m \approx 10 \text{ a } 20 \text{ muestras}$, equivalentes a $1\,\text{a } 2\,\text{ms}$) sobre el potencial de reposo. 
+  * Si el tamaño de ventana es menor o igual a la duración de la cúspide ($n \le m$), la ventana cae dentro del rango positivo del pico y la amplitud $V_{\max}$ se conserva estable.
+  * Si la ventana es excesivamente grande ($n > m$), la media del bloque incluye muestras de la repolarización e hiperpolarización posterior, provocando una atenuación acelerada del pico promedio $V_{\max}$.
+
+---
+
+### Justificación de la elección de $n=10$ ($1\,\text{ms}$)
+
+![RMSE de reconstrucción y Vmax conservado para LP y VD en Control, GABA y Recuperación, según n](resources/ordinal_window_metrics.png)
+
+La elección de $n$ debe equilibrar dos efectos. Si $n$ fuese demasiado pequeño, pequeñas oscilaciones subumbrales y derivas de la línea de base pueden producir secuencias crecientes o decrecientes iguales a las fases de un *spike*. Al repetirse esos patrones a lo largo del reposo, su frecuencia puede dominar el conteo y diluir la contribución de los disparos, dificultando que la información mutua refleje su relación entre canales.
+
+La reducción, sin embargo, también tiene un coste: el $V_{\max}(n)$ observado disminuye al aumentar el bloque, aunque no de manera estrictamente monótona, y ya presenta atenuación en $n=10$. Esto es coherente con la media por combinación convexa, que puede mezclar la despolarización del *spike* con muestras de la repolarización. El $\mathrm{RMSE}(n)$ observado aumenta con $n$, reflejando además la pérdida de detalle respecto a la señal original.
+
+En conjunto, **$n=10$ ($1\,\text{ms}$)** es una elección de compromiso razonable para este experimento: reduce el sobremuestreo temporal que puede hacer que las fluctuaciones subumbrales compitan con los patrones asociados a los *spikes*, y conserva una resolución del orden de la escala temporal de su fase ascendente. La figura no demuestra que ese valor preserve intacto el pico ni que sea un óptimo universal; muestra la atenuación que debe aceptarse a cambio de la reducción temporal. Por ello, $n=10$ se adopta como valor práctico para el análisis ordinal y la información mutua.
 
 ---
 
@@ -430,13 +459,13 @@ Para una dimensión de orden $d$, existen $(d+1)!$ patrones de orden posibles.
 
 Bandt, C., & Pompe, B. (2002). Permutation entropy: A natural complexity measure for time series. *Physical Review Letters, 88*, 174102.
 
+Cover, T. M., & Thomas, J. A. (2006). *Elements of information theory* (2nd ed.). Wiley. https://doi.org/10.1002/047174882X
+
 Fadlallah, B., Chen, B., Keil, A., & Príncipe, J. C. (2013). Weighted-permutation entropy: A complexity measure for time series incorporating amplitude information. *Physical Review E, 87*, 022911.
 
 Keller, K., & Sinn, M. (2005). Ordinal analysis of time series. *Physica A: Statistical Mechanics and its Applications, 356*, 114.
 
 Keller, K., Unakafov, A. M., & Unakafova, V. A. (2014). Ordinal patterns, entropy, and EEG. *Entropy, 16*(12), 6212–6239. https://doi.org/10.3390/e16126212
-
-Cover, T. M., & Thomas, J. A. (2006). *Elements of information theory* (2nd ed.). Wiley. https://doi.org/10.1002/047174882X
 
 Latorre, R., Rodríguez, F. B., & Varona, P. (2002). Characterization of triphasic rhythms in central pattern generators (I): Interspike interval analysis. In *Artificial neural networks—ICANN 2002* (Lecture Notes in Computer Science, Vol. 2415, pp. 160–166). Springer. https://doi.org/10.1007/3-540-46084-5_27
 
@@ -444,9 +473,9 @@ Marder, E., & Bucher, D. (2007). Understanding circuit dynamics using the stomat
 
 Paninski, L. (2003). Estimation of entropy and mutual information. *Neural Computation, 15*(6), 1191–1253. https://doi.org/10.1162/089976603321780272
 
-Rodríguez, F. B., Latorre, R., & Varona, P. (2002). Characterization of triphasic rhythms in central pattern generators (II): Burst information analysis. In *Artificial neural networks—ICANN 2002* (Lecture Notes in Computer Science, Vol. 2415, pp. 167–173). Springer. https://doi.org/10.1007/3-540-46084-5_28
-
 Rodríguez, F. B., Varona, P., Huerta, R., Rabinovich, M. I., & Abarbanel, H. D. I. (2001). Richer network dynamics of intrinsically non-regular neurons measured through mutual information. In *Connectionist models of neurons, learning processes, and artificial intelligence* (Lecture Notes in Computer Science, Vol. 2084, pp. 490–497). Springer. https://doi.org/10.1007/3-540-45720-8_58
+
+Rodríguez, F. B., Latorre, R., & Varona, P. (2002). Characterization of triphasic rhythms in central pattern generators (II): Burst information analysis. In *Artificial neural networks—ICANN 2002* (Lecture Notes in Computer Science, Vol. 2415, pp. 167–173). Springer. https://doi.org/10.1007/3-540-46084-5_28
 
 Shannon, C. E. (1948). A mathematical theory of communication. *The Bell System Technical Journal, 27*(3), 379–423; *27*(4), 623–656. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x
 

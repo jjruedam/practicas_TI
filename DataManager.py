@@ -231,6 +231,42 @@ class DataManager:
             return self.recordings[:, :, ch_idx]
         return self.recordings[recording, :, ch_idx]
 
+    def mean_per_window(self, n: int) -> dict[str, np.ndarray]:
+        """Average each channel in non-overlapping blocks within each recording.
+
+        Parameters
+        ----------
+        n : int
+            Number of samples in each block. A final incomplete block is
+            averaged separately for every recording.
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            One array per channel, each with shape
+            ``(n_recordings, n_blocks)``.
+        """
+        if not isinstance(n, (int, np.integer)) or isinstance(n, bool) or n < 1:
+            raise ValueError("n must be a positive integer.")
+
+        n_recordings, recording_length, _ = self.recordings.shape
+        full_blocks, remainder = divmod(recording_length, n)
+        reduced_by_channel = {}
+
+        for channel_index, name in enumerate(self.channel_names):
+            channel_data = self.recordings[:, :, channel_index]
+            reduced = channel_data[:, : full_blocks * n].reshape(
+                n_recordings, full_blocks, n
+            ).mean(axis=2)
+            if remainder:
+                tail_mean = channel_data[:, full_blocks * n :].mean(
+                    axis=1, keepdims=True
+                )
+                reduced = np.concatenate((reduced, tail_mean), axis=1)
+            reduced_by_channel[name] = reduced
+
+        return reduced_by_channel
+
     def _channel_index(self, channel: str) -> int:
         try:
             return self.channel_names.index(channel)

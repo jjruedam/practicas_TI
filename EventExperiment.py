@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 
 from DataManager import DataManager, SAMPLE_INTERVAL
 
+
 class WordDistribution(dict):
     """Dictionary-like probability distribution with array-valued ``values()``."""
 
@@ -628,6 +629,44 @@ class EventExperiment:
             return tuple(np.asarray(sequence).ravel().tolist())
         return (sequence,)
 
+    @property
+    def entropy_block(self) -> float:
+        """Empirical Shannon entropy of the word distribution."""
+        return self._entropy_from_counts(self.counts)
+
+    @property
+    def entropy_conditional(self) -> float:
+        """Conditional entropy estimate for the next symbol given the current context."""
+        if self.word_length <= 1:
+            return self.entropy_block
+        prefix_counts: Counter[tuple[Any, ...]] = Counter()
+        for word, count in self.counts.items():
+            prefix = word[:-1]
+            prefix_counts[prefix] += count
+        return self.entropy_block - self._entropy_from_counts(prefix_counts)
+
+    def prob(self, word: Sequence[Any]) -> float:
+        """Return the empirical probability of a word or prefix of it."""
+        seq = self._normalize_sequence(word)
+        if not seq:
+            return 1.0
+        if len(seq) >= self.word_length:
+            return float(self.counts.get(tuple(seq[: self.word_length]), 0) / self.total_count)
+        total = 0.0
+        for full_word, count in self.counts.items():
+            if full_word[: len(seq)] == seq:
+                total += count
+        return 0.0 if self.total_count == 0 else total / self.total_count
+
+    def chain_prob(self, observed: Sequence[Any]) -> float:
+        """Return the empirical probability of an observed full word."""
+        seq = self._normalize_sequence(observed)
+        if len(seq) == 0:
+            return 1.0
+        if len(seq) < self.word_length:
+            return self.prob(seq)
+        return float(self.counts.get(tuple(seq[: self.word_length]), 0) / self.total_count)
+
     def _marginal_prob(self, sequence: Sequence[Any]) -> float:
         """Return the empirical probability of a sequence prefix.
 
@@ -653,6 +692,63 @@ class EventExperiment:
             f"EventExperiment(word_length={self.word_length}, "
             f"n_words={len(self.counts)}, total_count={self.total_count})"
         )
+
+
+def mutual_information(first: Sequence[Any], second: Sequence[Any]) -> float:
+    """Return the empirical mutual information between two discrete sequences.
+
+    The sequences are treated as paired observations in the same order, and the
+    mutual information is computed from the joint empirical distribution.
+    """
+    first = np.asarray(first, dtype=int).ravel().tolist()
+    second = np.asarray(second, dtype=int).ravel().tolist()
+    if len(first) != len(second):
+        raise ValueError("Sequences must have the same length.")
+    if not first:
+        return 0.0
+
+    joint_counts: Counter[tuple[int, int]] = Counter()
+    first_counts: Counter[int] = Counter()
+    second_counts: Counter[int] = Counter()
+    for left, right in zip(first, second):
+        joint_counts[(int(left), int(right))] += 1
+        first_counts[int(left)] += 1
+        second_counts[int(right)] += 1
+
+    total = float(sum(joint_counts.values()))
+    mi = 0.0
+    for (left, right), count in joint_counts.items():
+        p_xy = count / total
+        p_x = first_counts[left] / total
+        p_y = second_counts[right] / total
+        if p_xy > 0 and p_x > 0 and p_y > 0:
+            mi += p_xy * math.log2(p_xy / (p_x * p_y))
+    return max(0.0, mi)
+
+
+def normalized_mutual_information(first: Sequence[Any], second: Sequence[Any]) -> tuple[float, float]:
+    """Return directional normalized mutual information ratios ``I(X;Y)/H(X)`` and ``I(X;Y)/H(Y)``."""
+    first = list(first)
+    second = list(second)
+    if len(first) != len(second):
+        raise ValueError("Sequences must have the same length.")
+    if not first:
+        return 0.0, 0.0
+
+    mi = mutual_information(first, second)
+    first_entropy = -sum(
+        (count / len(first)) * math.log2(count / len(first))
+        for count in Counter(first).values()
+        if count > 0
+    )
+    second_entropy = -sum(
+        (count / len(second)) * math.log2(count / len(second))
+        for count in Counter(second).values()
+        if count > 0
+    )
+    normalized_first = 0.0 if first_entropy == 0 else mi / first_entropy
+    normalized_second = 0.0 if second_entropy == 0 else mi / second_entropy
+    return normalized_first, normalized_second
 
 
 def _pairwise_context_mutual_information(

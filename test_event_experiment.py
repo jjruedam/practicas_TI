@@ -3,7 +3,11 @@ import math
 import numpy as np
 import pytest
 
-from EventExperiment import EventExperiment, mutual_information, normalized_mutual_information
+from EventExperiment import (
+    EventExperiment,
+    mutual_information,
+    normalized_mutual_information,
+)
 
 
 def test_constant_signal_has_zero_entropy_and_zero_conditional_entropy():
