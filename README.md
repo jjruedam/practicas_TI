@@ -414,16 +414,40 @@ Para una dimensión de orden $d$, existen $(d+1)!$ patrones de orden posibles.
 
 1. **Retardo temporal ($\tau=1$):** Se fija $\tau=1$ muestra de la serie reducida, equivalente a un intervalo de $1\,\text{ms}$.
 2. **Tratamiento de empates y tolerancia al ruido ($\eta$):** En caso de igualdad exacta de amplitud entre dos puntos ($v_i=v_j$), se rompe el empate asignando precedencia al índice temporal menor ($r_{l-1}>r_l$ si $x_{r_{l-1}}=x_{r_l}$). Para evitar que pequeñas oscilaciones causadas por ruido de cuantización alteren artificialmente los patrones, se emplea el parámetro de precisión de empates $\eta$ (`tie_precision`) en la librería `ordpy`.
-3. **Validación de la cota de datos ($N$):** Para garantizar una estimación insesgada de las probabilidades ordinales, la longitud total de la serie reducida $N$ debe cumplir la restricción matemática propuesta por Bandt & Pompe:
+3. **Cota superior común para la dimensión de orden ($d$):** Para garantizar una estimación estadística fiable e insesgada de las frecuencias de los patrones ordinales, se aplica la regla práctica de suficiencia muestral propuesta por Bandt y Pompe (y formalizada por Keller et al., 2014):
 
-   $$
-   5(d+1)! < N
-   $$
+   $$5(d+1)! < N$$
 
-   * Con $N\approx1.638.400$ muestras tras la reducción con $n=10$, se verifica que $5\times(7+1)!=201.600<N$, mientras que para $d=8$ tendríamos $5\times9!=1.814.400>N$.
-   * Por tanto, se establece **$d=7$** como la cota superior válida para el análisis.
+   Donde $(d+1)!$ representa el número total de patrones ordinales posibles para una dimensión $d$, y $N$ es la cantidad de muestras disponibles en la señal reducida. Dado que los patrones ordinales se extraen mediante ventanas solapadas, esta desigualdad actúa como un criterio orientativo indispensable para evitar el inframuestreo de combinaciones infrecuentes.
 
-4. **Codificación simbólica y distribución conjunta:**
+   Puesto que el análisis neurofisiológico compara de forma directa los tres estados experimentales (Control, GABA y Recuperación), la cota superior de $d$ debe cumplirse de manera homogénea en todos ellos. Por tanto, el límite de la dimensión viene determinado de forma estricta por la condición con menor volumen de datos ($N_{\min}$).
+
+   
+   | Estado | Muestras en archivo | Valores reducidos ($N$) |
+   |:---|---:|---:|
+   | **Control** | $19.847.700$ | $1.984.770$ |
+   | **GABA** | $16.384.000$ | $1.638.400$ |
+   | **Recuperación** | $16.384.000$ | $1.638.400$ |
+
+
+   Evaluando la desigualdad con el tamaño muestral mínimo disponible ($N_{\min} = 1.630.000$):
+
+   * **Para $d = 7$:** El alfabeto consta de $(7+1)! = 40.320$ patrones posibles, verificándose que:
+     $$5 \times (7+1)! = 5 \times 40.320 = 201.600 < 1.630.000 \quad (\checkmark)$$
+   * **Para $d = 8$:** El alfabeto se expande a $(8+1)! = 362.880$ patrones, requiriendo un mínimo de:
+     $$5 \times (8+1)! = 5 \times 362.880 = 1.814.400 > 1.630.000 \quad (\boldsymbol{\times})$$
+
+   Aunque la condición de Control por sí sola permitiría alcanzar $d = 8$ ($1.814.400 < 1.980.000$), las condiciones de GABA y Recuperación no satisfacen dicho criterio.
+
+   En consecuencia, **se establece $d = 7$ como la cota superior común para los tres estados experimentales**. Esta restricción garantiza la coherencia metodológica en la comparación entre condiciones y permite explorar con rigor el rango de dimensiones $d \in \{2, 3, 4, 5, 6, 7\}$.
+
+
+
+### Estimación de probabilidades e información mutua
+
+*Pendiente de documentar el cálculo de probabilidades, entropías e información mutua para esta discretización.*
+
+**Codificación simbólica y distribución conjunta:**
    Cada una de las $(d+1)!$ permutaciones posibles de dimensión $d$ se mapea a un entero único en el rango $[0,(d+1)!-1]$. La secuencia conjunta entre las neuronas VD y LP se codifica combinando ambos índices:
 
    $$
@@ -432,14 +456,6 @@ Para una dimensión de orden $d$, existen $(d+1)!$ patrones de orden posibles.
    $$
 
    A partir de esta codificación se estiman las distribuciones marginales $P(\pi_{\text{VD}})$ y $P(\pi_{\text{LP}})$, y la distribución conjunta $P(\pi_{\text{VD}},\pi_{\text{LP}})$, para calcular las entropías de Shannon y la información mutua.
-
-#### Comportamiento según la dimensión $d$
-* **Dimensiones bajas ($d\leq6$):** La información mutua resulta cercana a cero debido a que las oscilaciones continuas de fondo de la membrana generan patrones muy equidistribuidos.
-* **Dimensión alta ($d=7$):** Permite construir palabras ordinales lo suficientemente largas como para diferenciar las formas de onda complejas asociadas a los *spikes* frente a la dinámica sub-umbral de reposo, capturando de forma representativa los eventos informativos entre ambas neuronas.
-
-#### Estimación de probabilidades e información mutua
-
-*Pendiente de documentar el cálculo de probabilidades, entropías e información mutua para esta discretización.*
 
 ### Resultados
 

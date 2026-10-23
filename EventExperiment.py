@@ -3,7 +3,8 @@
 Sequences can be supplied directly or derived from a :class:`DataManager` by
 detecting spikes in fixed time windows. The resulting experiment counts
 overlapping words, computes their block entropy, and can compare channels
-using mutual information.
+using mutual information. Separate helpers provide ordinal-pattern
+distributions for continuous signals.
 """
 
 from __future__ import annotations
@@ -13,13 +14,14 @@ import math
 import warnings
 from collections import Counter
 from dataclasses import dataclass, field
-from itertools import combinations, islice
+from itertools import combinations, islice, permutations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import ordpy
 
 from DataManager import DataManager, SAMPLE_INTERVAL
 
@@ -694,6 +696,430 @@ class EventExperiment:
         )
 
 
+class OrdinalExperiment:
+    """Calculate and save ordinal-pattern entropy and MI for LP and VD.
+
+    The manager supplies continuous recordings. Each recording is first
+    reduced with :meth:`DataManager.mean_per_window`, then ordinal patterns
+    and their marginal/joint distributions are calculated without crossing
+    recording boundaries. Results are saved automatically as a JSON file
+    under the manager's ``experiments`` directory.
+
+    Parameters
+    ----------
+    manager : DataManager
+        Loaded data manager containing the ``LP`` and ``VD`` channels.
+    d : int
+        Ordinal order. Each pattern contains ``d + 1`` samples.
+    n : int
+        Number of original samples averaged per reduced value.
+    eta : int or None
+        Decimal precision used by ``ordpy`` to detect ties.
+    output_path : str or Path or None
+        Optional destination. If omitted, a unique JSON filename is created
+        in ``manager.data_dir / "experiments"``.
+    """
+
+    def __init__(
+        self,
+        manager: DataManager,
+        d: int,
+        n: int = 10,
+        eta: int | None = None,
+        output_path: str | Path | None = None,
+        word_length: int = 1,
+    ) -> None:
+        if not isinstance(n, (int, np.integer)) or isinstance(n, bool) or n < 1:
+            raise ValueError("n must be a positive integer.")
+        if (
+            not isinstance(word_length, (int, np.integer))
+            or isinstance(word_length, bool)
+            or word_length < 1
+        ):
+            raise ValueError("word_length must be a positive integer.")
+        self.manager = manager
+        self.d = d
+        self.n = int(n)
+        self.word_length = int(word_length)
+        self.eta = eta
+        self.channel_names = ("VD", "LP")
+        missing_channels = set(self.channel_names) - set(manager.channel_names)
+        if missing_channels:
+            raise ValueError(
+                "DataManager must contain both 'VD' and 'LP' channels; "
+                f"missing: {sorted(missing_channels)}."
+            )
+
+        reduced_data = manager.mean_per_window(self.n)
+        self.data = {
+            channel: reduced_data[channel]
+            for channel in self.channel_names
+        }
+        (
+            self.marginal_distributions,
+            self.joint_distribution,
+        ) = ordinal_word_distributions(
+            self.data,
+            d=self.d,
+            word_length=self.word_length,
+            eta=self.eta,
+        )
+        self.channel_entropy = {
+            channel: self._entropy(distribution)
+            for channel, distribution in self.marginal_distributions.items()
+        }
+        self.joint_entropy = self._entropy(self.joint_distribution)
+        self.mutual_information = max(
+            0.0,
+            sum(self.channel_entropy.values()) - self.joint_entropy,
+        )
+        self.normalized_mutual_information = {
+            channel: (
+                self.mutual_information / entropy if entropy > 0 else 0.0
+            )
+            for channel, entropy in self.channel_entropy.items()
+        }
+        self.output_path = (
+            Path(output_path)
+            if output_path is not None
+            else self._manager_output_path()
+        )
+        self.save(self.output_path)
+
+    @staticmethod
+    def _entropy(distribution: Mapping[Any, float] | Sequence[float]) -> float:
+        """Calculate Shannon entropy in bits from nonzero probabilities."""
+        probabilities = (
+            distribution.values()
+            if isinstance(distribution, Mapping)
+            else distribution
+        )
+        return -sum(
+            float(probability) * math.log2(float(probability))
+            for probability in probabilities
+            if probability > 0
+        )
+
+    def _manager_output_path(self) -> Path:
+        """Choose an unused output path for this ordinal configuration."""
+        directory = Path(self.manager.data_dir) / "experiments"
+        source_stem = Path(self.manager.filename).stem
+        stem = (
+            f"{source_stem}_ordinal-n{self.n}-d{self.d}"
+            f"-word-{self.word_length}"
+        )
+        target = directory / f"{stem}.json"
+        suffix = 1
+        while target.exists():
+            target = directory / f"{stem}_({suffix}).json"
+            suffix += 1
+        return target
+
+    def save(self, path: str | Path) -> Path:
+        """Write experiment settings and entropy/MI metrics to JSON."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "kind": "ordinal",
+            "version": 1,
+            "source_name": str(self.manager.filename),
+            "config": {
+                "discretization": "ordinal_patterns",
+                "window_size_samples": self.n,
+                "window_size_ms": self.n * SAMPLE_INTERVAL,
+                "ordinal_order": int(self.d),
+                "pattern_length": int(self.d) + 1,
+                "word_length": self.word_length,
+                "tie_precision": self.eta,
+            },
+            "metrics": {
+                "channel_entropy_bits": self.channel_entropy,
+                "joint_entropy_bits": self.joint_entropy,
+                "mutual_information_bits": self.mutual_information,
+                "normalized_mutual_information": self.normalized_mutual_information,
+            },
+        }
+        with target.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+        self.output_path = target
+        return target
+
+
+def _ordinal_recordings(
+    data: Mapping[str, Any],
+    d: int,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Validate paired channel data and return recordings and embedding size."""
+    if not isinstance(data, Mapping):
+        raise TypeError("data must be a mapping with 'VD' and 'LP' channels.")
+    if "VD" not in data or "LP" not in data:
+        raise ValueError("data must contain both 'VD' and 'LP' channels.")
+    if isinstance(d, bool) or not isinstance(d, (int, np.integer)):
+        raise TypeError("d must be an integer.")
+    if d < 1:
+        raise ValueError("d must be at least 1.")
+
+    channels: list[np.ndarray] = []
+    for channel_name in ("VD", "LP"):
+        channel = np.asarray(data[channel_name], dtype=float)
+        if channel.ndim == 1:
+            channel = channel[np.newaxis, :]
+        elif channel.ndim != 2:
+            raise ValueError(
+                f"{channel_name} data must be a 1D signal or a 2D array "
+                "of recordings."
+            )
+        if channel.size == 0 or not np.isfinite(channel).all():
+            raise ValueError(f"{channel_name} data must be non-empty and finite.")
+        channels.append(channel)
+
+    if channels[0].shape != channels[1].shape:
+        raise ValueError("VD and LP recordings must have the same shape.")
+
+    embedding_size = int(d) + 1
+    if channels[0].shape[1] < embedding_size:
+        raise ValueError(
+            f"Each recording must contain at least {embedding_size} samples "
+            f"for d={d}."
+        )
+    return channels[0], channels[1], embedding_size
+
+
+def _ordinal_pattern_indices(embedding_size: int) -> dict[tuple[int, ...], int]:
+    """Map each ordinal pattern to its index in lexicographic order."""
+    return {
+        pattern: index
+        for index, pattern in enumerate(permutations(range(embedding_size)))
+    }
+
+
+def ordinal_marginal_distributions(
+    data: Mapping[str, Any],
+    d: int,
+    eta: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ordinal-pattern probabilities for VD and LP, respectively.
+
+    ``d`` is the ordinal order, so each pattern contains ``d + 1`` samples
+    and is passed to ``ordpy`` as ``dx=d + 1``. Inputs may be
+    one-dimensional signals or two-dimensional arrays shaped as
+    ``(recordings, samples)``. Recording boundaries are not crossed.
+
+    Each returned array contains probabilities for every possible pattern in
+    lexicographic permutation order, including zero-probability patterns.
+    """
+    vd_recordings, lp_recordings, embedding_size = _ordinal_recordings(
+        data, d
+    )
+    pattern_indices = _ordinal_pattern_indices(embedding_size)
+    alphabet_size = len(pattern_indices)
+    distributions = (
+        np.zeros(alphabet_size, dtype=float),
+        np.zeros(alphabet_size, dtype=float),
+    )
+    total_windows = 0
+
+    for recording_index in range(vd_recordings.shape[0]):
+        vd = vd_recordings[recording_index]
+        lp = lp_recordings[recording_index]
+        window_count = len(vd) - embedding_size + 1
+        total_windows += window_count
+
+        for signal, distribution in zip((vd, lp), distributions):
+            patterns, probabilities = ordpy.ordinal_distribution(
+                signal,
+                dx=embedding_size,
+                tie_precision=eta,
+            )
+            for pattern, probability in zip(patterns, probabilities):
+                pattern_index = pattern_indices[tuple(int(value) for value in pattern)]
+                distribution[pattern_index] += float(probability) * window_count
+
+    for distribution in distributions:
+        distribution /= total_windows
+    return distributions
+
+
+def ordinal_joint_distribution(
+    data: Mapping[str, Any],
+    d: int,
+    eta: int | None = None,
+) -> dict[int, float]:
+    """Return a sparse joint distribution of the ordinal patterns in VD and LP.
+
+    The integer key encodes the lexicographic pattern indices as
+    ``vd_index * ((d + 1)!) + lp_index``. Only observed joint patterns are
+    stored, avoiding a dense array of size ``((d + 1)!) ** 2``. Inputs may
+    be one-dimensional signals or two-dimensional arrays shaped as
+    ``(recordings, samples)``; patterns never cross recording boundaries.
+    """
+    vd_recordings, lp_recordings, embedding_size = _ordinal_recordings(
+        data, d
+    )
+    pattern_indices = _ordinal_pattern_indices(embedding_size)
+    alphabet_size = len(pattern_indices)
+    joint_counts: Counter[int] = Counter()
+    total_windows = 0
+
+    for recording_index in range(vd_recordings.shape[0]):
+        vd_patterns = ordpy.ordinal_sequence(
+            vd_recordings[recording_index],
+            dx=embedding_size,
+            tie_precision=eta,
+        )
+        lp_patterns = ordpy.ordinal_sequence(
+            lp_recordings[recording_index],
+            dx=embedding_size,
+            tie_precision=eta,
+        )
+        vd_indices = np.fromiter(
+            (
+                pattern_indices[tuple(int(value) for value in pattern)]
+                for pattern in vd_patterns
+            ),
+            dtype=np.int64,
+            count=len(vd_patterns),
+        )
+        lp_indices = np.fromiter(
+            (
+                pattern_indices[tuple(int(value) for value in pattern)]
+                for pattern in lp_patterns
+            ),
+            dtype=np.int64,
+            count=len(lp_patterns),
+        )
+        if len(vd_indices) != len(lp_indices):
+            raise ValueError("VD and LP must produce the same number of patterns.")
+
+        codes = vd_indices * alphabet_size + lp_indices
+        codes, counts = np.unique(codes, return_counts=True)
+        joint_counts.update(
+            {int(code): int(count) for code, count in zip(codes, counts)}
+        )
+        total_windows += len(vd_indices)
+
+    return {
+        code: count / total_windows
+        for code, count in sorted(joint_counts.items())
+    }
+
+
+def ordinal_word_distributions(
+    data: Mapping[str, Any],
+    d: int,
+    word_length: int,
+    eta: int | None = None,
+) -> tuple[dict[str, dict[tuple[int, ...], float]], dict[tuple[tuple[int, ...], tuple[int, ...]], float]]:
+    """Return marginal and joint distributions of consecutive ordinal patterns.
+
+    ``d`` determines each ordinal pattern's order (pattern length ``d + 1``);
+    ``word_length`` is the number of consecutive ordinal symbols in each
+    observation. Word contexts are formed independently within each
+    recording. For ``word_length=1``, the existing ordinal marginal and joint
+    distribution functions provide the probabilities.
+    """
+    if (
+        not isinstance(word_length, (int, np.integer))
+        or isinstance(word_length, bool)
+        or word_length < 1
+    ):
+        raise ValueError("word_length must be a positive integer.")
+
+    vd_recordings, lp_recordings, embedding_size = _ordinal_recordings(data, d)
+    pattern_indices = _ordinal_pattern_indices(embedding_size)
+    channel_names = ("VD", "LP")
+
+    if word_length == 1:
+        alphabet_size = len(pattern_indices)
+        marginal_arrays = ordinal_marginal_distributions(data, d=d, eta=eta)
+        marginals = {
+            channel: {
+                (pattern_index,): float(probability)
+                for pattern_index, probability in enumerate(distribution)
+                if probability > 0
+            }
+            for channel, distribution in zip(channel_names, marginal_arrays)
+        }
+        encoded_joint = ordinal_joint_distribution(data, d=d, eta=eta)
+        joint = {
+            (
+                (encoded // alphabet_size,),
+                (encoded % alphabet_size,),
+            ): probability
+            for encoded, probability in encoded_joint.items()
+        }
+        return marginals, joint
+
+    marginal_counts: dict[str, Counter[tuple[int, ...]]] = {
+        channel: Counter() for channel in channel_names
+    }
+    joint_counts: Counter[
+        tuple[tuple[int, ...], tuple[int, ...]]
+    ] = Counter()
+    total_words = 0
+
+    for vd, lp in zip(vd_recordings, lp_recordings):
+        pattern_sequences = []
+        for recording in (vd, lp):
+            patterns = ordpy.ordinal_sequence(
+                recording,
+                dx=embedding_size,
+                tie_precision=eta,
+            )
+            pattern_sequences.append(
+                np.fromiter(
+                    (
+                        pattern_indices[tuple(int(value) for value in pattern)]
+                        for pattern in patterns
+                    ),
+                    dtype=np.int64,
+                    count=len(patterns),
+                )
+            )
+
+        word_count = len(pattern_sequences[0]) - word_length + 1
+        if word_count <= 0:
+            continue
+        if len(pattern_sequences[0]) != len(pattern_sequences[1]):
+            raise ValueError("VD and LP must produce the same number of patterns.")
+
+        def words(sequence: np.ndarray):
+            return (
+                tuple(int(value) for value in word)
+                for word in zip(
+                    *(
+                        sequence[offset : offset + word_count]
+                        for offset in range(word_length)
+                    )
+                )
+            )
+
+        marginal_counts["VD"].update(words(pattern_sequences[0]))
+        marginal_counts["LP"].update(words(pattern_sequences[1]))
+        joint_counts.update(
+            zip(words(pattern_sequences[0]), words(pattern_sequences[1]))
+        )
+        total_words += word_count
+
+    if total_words == 0:
+        raise ValueError(
+            "The recordings are too short for the requested ordinal word_length."
+        )
+
+    marginals = {
+        channel: {
+            word: count / total_words
+            for word, count in counts.items()
+        }
+        for channel, counts in marginal_counts.items()
+    }
+    joint = {
+        word_pair: count / total_words
+        for word_pair, count in joint_counts.items()
+    }
+    return marginals, joint
+
+
 def mutual_information(first: Sequence[Any], second: Sequence[Any]) -> float:
     """Return the empirical mutual information between two discrete sequences.
 
@@ -1077,8 +1503,12 @@ def plot_comparative_mutual_information(
 __all__ = [
     "EventConfig",
     "EventExperiment",
+    "OrdinalExperiment",
     "SimpleEventConfig",
     "WordDistribution",
+    "ordinal_joint_distribution",
+    "ordinal_marginal_distributions",
+    "ordinal_word_distributions",
     "plot_comparative_mutual_information",
     "plot_experiment_sweep",
 ]

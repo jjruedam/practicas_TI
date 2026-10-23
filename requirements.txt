@@ -6,3 +6,4 @@ ipywidgets
 pytest
 numba
 pyarrow
+ordpy
