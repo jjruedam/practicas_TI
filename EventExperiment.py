@@ -16,7 +16,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from itertools import combinations, islice, permutations
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -829,6 +829,7 @@ class OrdinalExperiment:
                 "window_size_ms": self.n * SAMPLE_INTERVAL,
                 "ordinal_order": int(self.d),
                 "pattern_length": int(self.d) + 1,
+                "possible_ordinal_patterns": math.factorial(int(self.d) + 1),
                 "word_length": self.word_length,
                 "tie_precision": self.eta,
             },
@@ -842,6 +843,134 @@ class OrdinalExperiment:
         with target.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
         self.output_path = target
+        return target
+
+    @classmethod
+    def run_sweep(
+        cls,
+        manager: DataManager,
+        d_values: Sequence[int],
+        word_lengths: Sequence[int],
+        n: int = 10,
+        eta: int | None = None,
+        output_directory: str | Path | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run a sweep while reusing reduced signals and ordinal sequences.
+
+        The signal is reduced once for the selected ``n``. For each ordinal
+        order, each channel is ordinally encoded once; all requested word
+        lengths and their JSON results are then calculated from those cached
+        symbol sequences.
+        """
+        if not isinstance(n, (int, np.integer)) or isinstance(n, bool) or n < 1:
+            raise ValueError("n must be a positive integer.")
+        orders = cls._validated_sweep_values(d_values, "d_values")
+        lengths = cls._validated_sweep_values(word_lengths, "word_lengths")
+        missing_channels = {"VD", "LP"} - set(manager.channel_names)
+        if missing_channels:
+            raise ValueError(
+                "DataManager must contain both 'VD' and 'LP' channels; "
+                f"missing: {sorted(missing_channels)}."
+            )
+
+        reduced = manager.mean_per_window(int(n))
+        data = {"VD": reduced["VD"], "LP": reduced["LP"]}
+        output_dir = (
+            Path(output_directory)
+            if output_directory is not None
+            else Path(manager.data_dir) / "experiments"
+        )
+        results: list[dict[str, Any]] = []
+        source_stem = Path(manager.filename).stem
+
+        for order_index, d in enumerate(orders, start=1):
+            sequences = _ordinal_pattern_sequences(data, d=d, eta=eta)
+            alphabet_size = math.factorial(d + 1)
+            joint_symbols = [
+                vd * alphabet_size + lp
+                for vd, lp in zip(sequences["VD"], sequences["LP"])
+            ]
+            max_word_length = max(lengths)
+            vd_entropies = _context_entropies(
+                sequences["VD"], max_word_length
+            )
+            lp_entropies = _context_entropies(
+                sequences["LP"], max_word_length
+            )
+            joint_entropies = _context_entropies(
+                joint_symbols, max_word_length
+            )
+
+            for word_length in lengths:
+                channel_entropy = {
+                    "VD": vd_entropies[word_length],
+                    "LP": lp_entropies[word_length],
+                }
+                joint_entropy = joint_entropies[word_length]
+                mutual_information = max(
+                    0.0,
+                    sum(channel_entropy.values()) - joint_entropy,
+                )
+                normalized = {
+                    channel: (
+                        mutual_information / entropy if entropy > 0 else 0.0
+                    )
+                    for channel, entropy in channel_entropy.items()
+                }
+                experiment = cls.__new__(cls)
+                experiment.manager = manager
+                experiment.d = d
+                experiment.n = int(n)
+                experiment.word_length = word_length
+                experiment.eta = eta
+                experiment.channel_names = ("VD", "LP")
+                experiment.channel_entropy = channel_entropy
+                experiment.joint_entropy = joint_entropy
+                experiment.mutual_information = mutual_information
+                experiment.normalized_mutual_information = normalized
+                stem = (
+                    f"{source_stem}_ordinal-n{n}-d{d}"
+                    f"-word-{word_length}"
+                )
+                output_path = cls._unique_output_path(output_dir, stem)
+                experiment.save(output_path)
+                results.append(
+                    {
+                        "d": d,
+                        "word_length": word_length,
+                        "channel_entropy_bits": channel_entropy,
+                        "joint_entropy_bits": joint_entropy,
+                        "mutual_information_bits": mutual_information,
+                        "normalized_mutual_information": normalized,
+                        "output_path": output_path,
+                    }
+                )
+            if progress_callback is not None:
+                progress_callback(d, order_index)
+        return results
+
+    @staticmethod
+    def _validated_sweep_values(values: Sequence[int], name: str) -> list[int]:
+        result = list(values)
+        if not result or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, np.integer))
+            or value < 1
+            for value in result
+        ):
+            raise ValueError(f"{name} must contain positive integers.")
+        if len(set(result)) != len(result):
+            raise ValueError(f"{name} must not contain duplicates.")
+        return [int(value) for value in result]
+
+    @staticmethod
+    def _unique_output_path(directory: Path, stem: str) -> Path:
+        target = directory / f"{stem}.json"
+        suffix = 1
+        while target.exists():
+            target = directory / f"{stem}_({suffix}).json"
+            suffix += 1
         return target
 
 
@@ -891,6 +1020,126 @@ def _ordinal_pattern_indices(embedding_size: int) -> dict[tuple[int, ...], int]:
         pattern: index
         for index, pattern in enumerate(permutations(range(embedding_size)))
     }
+
+
+def _ordinal_pattern_rank(patterns: np.ndarray) -> np.ndarray:
+    """Encode length-``d + 1`` permutation rows as ranks in ``0..(d+1)!-1``."""
+    patterns = np.asarray(patterns, dtype=np.int64)
+    if patterns.ndim != 2:
+        raise ValueError("Ordinal patterns must be a two-dimensional array.")
+    embedding_size = patterns.shape[1]
+    ranks = np.zeros(patterns.shape[0], dtype=np.int64)
+    for index in range(embedding_size - 1):
+        smaller_to_right = np.count_nonzero(
+            patterns[:, index + 1 :] < patterns[:, index, np.newaxis],
+            axis=1,
+        )
+        ranks += smaller_to_right * math.factorial(embedding_size - index - 1)
+    return ranks
+
+
+def _ordinal_pattern_sequences(
+    data: Mapping[str, Any],
+    d: int,
+    eta: int | None,
+) -> dict[str, list[np.ndarray]]:
+    """Return ordinal symbol IDs per channel and recording.
+
+    The user-facing ordinal dimension is ``d``; ``ordpy`` receives
+    ``dx=d + 1``, yielding ``(d + 1)!`` possible patterns.
+    """
+    vd_recordings, lp_recordings, embedding_size = _ordinal_recordings(data, d)
+    sequences: dict[str, list[np.ndarray]] = {"VD": [], "LP": []}
+    for vd, lp in zip(vd_recordings, lp_recordings):
+        for channel, recording in (("VD", vd), ("LP", lp)):
+            patterns = ordpy.ordinal_sequence(
+                recording,
+                dx=embedding_size,
+                tie_precision=eta,
+            )
+            sequences[channel].append(_ordinal_pattern_rank(patterns))
+    return sequences
+
+
+def _context_entropies(
+    symbol_sequences: Sequence[np.ndarray],
+    max_word_length: int,
+) -> dict[int, float]:
+    """Calculate context entropies incrementally without Python word objects."""
+    if not symbol_sequences:
+        raise ValueError("At least one recording is required.")
+    if any(len(sequence) < max_word_length for sequence in symbol_sequences):
+        raise ValueError(
+            "The recordings are too short for the requested word length."
+        )
+
+    context_ids = [np.asarray(sequence, dtype=np.int64) for sequence in symbol_sequences]
+    symbol_base = max(
+        int(sequence.max()) + 1
+        for sequence in symbol_sequences
+        if len(sequence)
+    )
+    entropies: dict[int, float] = {}
+    for word_length in range(1, max_word_length + 1):
+        if word_length > 1:
+            context_codes = []
+            max_previous_id = max(
+                int(previous_ids.max())
+                for previous_ids in context_ids
+                if len(previous_ids)
+            )
+            use_packed_codes = max_previous_id <= (
+                np.iinfo(np.int64).max - (symbol_base - 1)
+            ) // symbol_base
+            for sequence, previous_ids in zip(symbol_sequences, context_ids):
+                context_count = len(sequence) - word_length + 1
+                if not use_packed_codes:
+                    pairs = np.column_stack(
+                        (
+                            previous_ids[:context_count],
+                            sequence[word_length - 1 :],
+                        )
+                    )
+                    context_codes.append(pairs)
+                else:
+                    context_codes.append(
+                        previous_ids[:context_count] * symbol_base
+                        + sequence[word_length - 1 :]
+                    )
+            if context_codes and context_codes[0].ndim == 2:
+                concatenated = np.concatenate(context_codes, axis=0)
+                _, inverse = np.unique(
+                    concatenated,
+                    axis=0,
+                    return_inverse=True,
+                )
+            else:
+                concatenated = np.concatenate(context_codes)
+                _, inverse = np.unique(concatenated, return_inverse=True)
+            context_ids = []
+            offset = 0
+            for codes in context_codes:
+                context_ids.append(inverse[offset : offset + len(codes)])
+                offset += len(codes)
+            counts = np.bincount(inverse)
+        else:
+            concatenated = np.concatenate(context_ids)
+            _, inverse, counts = np.unique(
+                concatenated,
+                return_inverse=True,
+                return_counts=True,
+            )
+            context_ids = []
+            offset = 0
+            for sequence in symbol_sequences:
+                context_ids.append(inverse[offset : offset + len(sequence)])
+                offset += len(sequence)
+
+        probabilities = counts / counts.sum()
+        entropies[word_length] = float(
+            -np.sum(probabilities * np.log2(probabilities))
+        )
+    return entropies
 
 
 def ordinal_marginal_distributions(

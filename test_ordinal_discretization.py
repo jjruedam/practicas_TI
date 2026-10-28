@@ -5,6 +5,7 @@ import math
 import numpy as np
 import pytest
 
+from EventExperiment import _ordinal_pattern_indices, _ordinal_pattern_rank
 from EventExperiment import (
     OrdinalExperiment,
     ordinal_joint_distribution,
@@ -29,6 +30,26 @@ def test_ordinal_marginals_use_full_alphabet_and_order_plus_one_samples():
     assert lp_distribution[patterns.index((2, 1, 0))] == 1.0
     assert np.isclose(vd_distribution.sum(), 1.0)
     assert np.isclose(lp_distribution.sum(), 1.0)
+
+
+@pytest.mark.parametrize("d", range(1, 8))
+def test_ordinal_dimension_has_factorial_of_d_plus_one_patterns(d):
+    pattern_length = d + 1
+    expected_pattern_count = math.factorial(pattern_length)
+    all_patterns = np.asarray(
+        list(itertools.permutations(range(pattern_length))),
+        dtype=np.int64,
+    )
+    ranks = _ordinal_pattern_rank(all_patterns)
+    pattern_indices = _ordinal_pattern_indices(pattern_length)
+
+    assert len(pattern_indices) == expected_pattern_count
+    assert len(np.unique(ranks)) == expected_pattern_count
+    assert set(ranks.tolist()) == set(range(expected_pattern_count))
+    assert all(
+        rank == pattern_indices[tuple(pattern)]
+        for pattern, rank in zip(all_patterns, ranks)
+    )
 
 
 def test_ordinal_joint_distribution_is_sparse_and_preserves_recording_boundaries():
@@ -95,6 +116,7 @@ def test_ordinal_experiment_saves_entropy_and_information_metrics(tmp_path):
     assert payload["kind"] == "ordinal"
     assert payload["config"]["ordinal_order"] == 1
     assert payload["config"]["pattern_length"] == 2
+    assert payload["config"]["possible_ordinal_patterns"] == 2
     assert payload["config"]["word_length"] == 1
     assert payload["metrics"]["mutual_information_bits"] == 1.0
     assert payload["metrics"]["channel_entropy_bits"] == {
@@ -194,3 +216,51 @@ def test_ordinal_word_distributions_reject_too_short_contexts():
             d=1,
             word_length=2,
         )
+
+
+def test_ordinal_sweep_reuses_reduction_and_matches_individual_metrics(tmp_path):
+    class FakeManager:
+        channel_names = ["VD", "LP"]
+        filename = "recording.txt"
+        data_dir = tmp_path
+        reduction_calls = 0
+
+        def mean_per_window(self, n):
+            self.reduction_calls += 1
+            assert n == 1
+            return {
+                "VD": np.array([[0.0, 1.0, 0.0, 1.0, 0.0, 1.0]]),
+                "LP": np.array([[0.0, 0.0, 1.0, 1.0, 0.0, 1.0]]),
+            }
+
+    manager = FakeManager()
+    results = OrdinalExperiment.run_sweep(
+        manager,
+        d_values=[1, 2],
+        word_lengths=[1, 2, 3],
+        n=1,
+        output_directory=tmp_path / "sweep",
+    )
+
+    assert len(results) == 6
+    assert manager.reduction_calls == 1
+    for result in results:
+        marginals, joint = ordinal_word_distributions(
+            {
+                "VD": np.array([[0.0, 1.0, 0.0, 1.0, 0.0, 1.0]]),
+                "LP": np.array([[0.0, 0.0, 1.0, 1.0, 0.0, 1.0]]),
+            },
+            d=result["d"],
+            word_length=result["word_length"],
+        )
+        expected_entropies = {
+            channel: OrdinalExperiment._entropy(distribution)
+            for channel, distribution in marginals.items()
+        }
+        expected_joint_entropy = OrdinalExperiment._entropy(joint)
+        assert result["channel_entropy_bits"] == pytest.approx(expected_entropies)
+        assert result["joint_entropy_bits"] == pytest.approx(expected_joint_entropy)
+        assert result["mutual_information_bits"] == pytest.approx(
+            max(0.0, sum(expected_entropies.values()) - expected_joint_entropy)
+        )
+        assert result["output_path"].exists()

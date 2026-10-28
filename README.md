@@ -445,17 +445,40 @@ Para una dimensión de orden $d$, existen $(d+1)!$ patrones de orden posibles.
 
 ### Estimación de probabilidades e información mutua
 
-*Pendiente de documentar el cálculo de probabilidades, entropías e información mutua para esta discretización.*
+El cálculo es el mismo que para la discretización binaria: se estiman probabilidades mediante frecuencias relativas y se obtienen la entropía, la información mutua y sus dos normalizaciones a partir de esas distribuciones. La diferencia es el símbolo observado: aquí cada $x_t$ o $y_t$ representa un patrón ordinal, no la presencia o ausencia de un spike.
 
-**Codificación simbólica y distribución conjunta:**
-   Cada una de las $(d+1)!$ permutaciones posibles de dimensión $d$ se mapea a un entero único en el rango $[0,(d+1)!-1]$. La secuencia conjunta entre las neuronas VD y LP se codifica combinando ambos índices:
+Para una dimensión $d$, cada símbolo ordinal se obtiene ordenando $d+1$ muestras consecutivas de la señal reducida, por lo que existen $(d+1)!$ símbolos posibles. Esta simbolización se realiza con la librería [`ordpy`](https://ordpy.readthedocs.io/): se indica `dx=d+1` porque `dx` es la longitud del patrón en muestras, no la dimensión $d$ usada aquí. Si se establece una precisión para tratar empates, se pasa mediante `tie_precision=eta`.
 
-   $$
-   C_{\text{conjunto}}(t)
-   = C_{\text{VD}}(t)\,(d+1)! + C_{\text{LP}}(t)
-   $$
+La función `ordpy.ordinal_sequence` devuelve los patrones ordinales en su orden temporal, uno por cada ventana deslizante de $d+1$ muestras. Estas secuencias de símbolos son la entrada para formar las palabras alineadas $X_N^{(t)}$ y $Y_N^{(t)}$ de VD y LP, cada una compuesta por $N$ patrones consecutivos. En particular, el barrido ordinal reutiliza una secuencia por canal y dimensión $d$ para contar las frecuencias de todos los tamaños de palabra solicitados. Los conteos se realizan registro por registro, sin formar ventanas que atraviesen los límites entre registros.
 
-   A partir de esta codificación se estiman las distribuciones marginales $P(\pi_{\text{VD}})$ y $P(\pi_{\text{LP}})$, y la distribución conjunta $P(\pi_{\text{VD}},\pi_{\text{LP}})$, para calcular las entropías de Shannon y la información mutua.
+Para $N=1$, `ordpy.ordinal_distribution` ofrece directamente otra representación útil: recibe la señal reducida de un canal y devuelve las permutaciones observadas junto con sus probabilidades. La función del proyecto `ordinal_marginal_distributions` la aplica a VD y LP para obtener las distribuciones marginales de patrones individuales. Para $N>1$, se conserva el orden devuelto por `ordinal_sequence` y se cuentan las palabras completas, pues la distribución de patrones individuales no contiene la información temporal necesaria para construirlas.
+
+Si el registro reducido $r$ tiene longitud $T_r$ y el retardo es $\tau$, contiene $T_r-d\tau$ símbolos ordinales y, por tanto, $\max(0,T_r-d\tau-N+1)$ palabras de longitud $N$. El número total de observaciones que se usa para normalizar los conteos es
+
+$$M_N = \sum_r \max(0,T_r-d\tau-N+1).$$
+
+Las probabilidades empíricas marginales y conjuntas se estiman con las frecuencias relativas de esas palabras alineadas:
+
+$$
+\hat{p}_N(x_N,y_N) = \frac{C_N(x_N,y_N)}{M_N}, \qquad
+\hat{p}_N(x_N) = \sum_{y_N}\hat{p}_N(x_N,y_N), \qquad
+\hat{p}_N(y_N) = \sum_{x_N}\hat{p}_N(x_N,y_N).
+$$
+
+Con estas probabilidades se calculan $H_N(VD)$, $H_N(LP)$ y $H_N(VD,LP)$, y la información mutua:
+
+$$
+\hat{I}_N(VD,LP) = H_N(VD) + H_N(LP) - H_N(VD,LP).
+$$
+
+Como en el análisis binario, la normalización es direccional:
+
+$$
+E_{VD\to LP}^{(N)} = \frac{\hat{I}_N(VD,LP)}{H_N(VD)}, \qquad
+E_{LP\to VD}^{(N)} = \frac{\hat{I}_N(VD,LP)}{H_N(LP)}.
+$$
+
+Por tanto, $d$ fija el tamaño del patrón que constituye cada símbolo ordinal, mientras que `word_length` corresponde a $N$, el número de símbolos ordinales agrupados. Al aumentar $d$ crece el alfabeto a $(d+1)!$; al aumentar $N$ crece el espacio de palabras y disminuye $M_N$. En consecuencia, las estimaciones para dimensiones o tamaños de palabra grandes requieren cautela por la escasez de observaciones respecto al número de patrones posibles.
 
 ### Resultados
 
