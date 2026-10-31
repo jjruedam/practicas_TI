@@ -394,7 +394,7 @@ La elección de $n$ debe equilibrar dos efectos. Si $n$ fuese demasiado pequeño
 
 La reducción, sin embargo, también tiene un coste: el $V_{\max}(n)$ observado disminuye al aumentar el bloque, aunque no de manera estrictamente monótona, y ya presenta atenuación en $n=10$. Esto es coherente con la media por combinación convexa, que puede mezclar la despolarización del *spike* con muestras de la repolarización. El $\mathrm{RMSE}(n)$ observado aumenta con $n$, reflejando además la pérdida de detalle respecto a la señal original.
 
-En conjunto, **$n=10$ ($1\,\text{ms}$)** es una elección de compromiso razonable para este experimento: reduce el sobremuestreo temporal que puede hacer que las fluctuaciones subumbrales compitan con los patrones asociados a los *spikes*, y conserva una resolución del orden de la escala temporal de su fase ascendente. La figura no demuestra que ese valor preserve intacto el pico ni que sea un óptimo universal; muestra la atenuación que debe aceptarse a cambio de la reducción temporal. Por ello, $n=10$ se adopta como valor práctico para el análisis ordinal y la información mutua.
+En conjunto, **$n=10$ ($1\,\text{ms}$)** se toma como límite superior del rango experimental: reduce el sobremuestreo temporal, manteniendo una resolución del orden de la escala temporal de su fase ascendente. Sin embargo, en torno a ese valor ya se observan caídas de $V_{\max}$ y valores de $\mathrm{RMSE}$ que consideramos demasiado significativos para seguir aumentando el tamaño de ventana. Por ello, los experimentos se limitan al intervalo $1 \leq n \leq 10$.
 
 ---
 
@@ -422,8 +422,9 @@ Para una dimensión de orden $d$, existen $(d+1)!$ patrones de orden posibles.
 
    Puesto que el análisis neurofisiológico compara de forma directa los tres estados experimentales (Control, GABA y Recuperación), la cota superior de $d$ debe cumplirse de manera homogénea en todos ellos. Por tanto, el límite de la dimensión viene determinado de forma estricta por la condición con menor volumen de datos ($N_{\min}$).
 
-   
-   | Estado | Muestras en archivo | Valores reducidos ($N$) |
+   Además, el número de muestras reducidas depende de $n$, por lo que la dimensión máxima admisible también puede variar para cada valor de $n$ entre 1 y 10. Para mantener los mismos valores de $d$ en todo ese intervalo, se toma el caso más restrictivo, $n=10$, que produce menos muestras reducidas; así, los valores de $d$ que cumplen el criterio para $n=10$ también lo cumplen para los demás valores considerados.
+
+   | Estado | Muestras en archivo | Valores reducidos ($N$, $n=10$) |
    |:---|---:|---:|
    | **Control** | $19.847.700$ | $1.984.770$ |
    | **GABA** | $16.384.000$ | $1.638.400$ |
