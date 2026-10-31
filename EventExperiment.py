@@ -1600,6 +1600,168 @@ def plot_experiment_sweep(
         plt.close(fig)
 
 
+def plot_ordinal_experiment_sweep(
+    experiment_paths: Sequence[str | Path],
+    state_name: str,
+) -> None:
+    """Plot ordinal entropy and MI metrics across ``n``, ``d``, and word length.
+
+    Each figure contains one panel per word length, with ``n`` on the x-axis
+    and a curve for each ordinal order ``d``. Raw entropy and MI metrics use a
+    logarithmic y-axis; normalized MI metrics use a linear y-axis.
+    """
+    rows = []
+    for experiment_path in experiment_paths:
+        with Path(experiment_path).open(encoding="utf-8") as file:
+            payload = json.load(file)
+        if payload.get("kind") != "ordinal":
+            raise ValueError(
+                f"Experiment JSON {experiment_path!s} is not an ordinal experiment."
+            )
+        config = payload["config"]
+        metrics = payload["metrics"]
+        rows.append(
+            {
+                "n": int(config["window_size_samples"]),
+                "window_ms": float(config["window_size_ms"]),
+                "d": int(config["ordinal_order"]),
+                "word_length": int(config["word_length"]),
+                "channel_entropy": {
+                    key: float(value)
+                    for key, value in metrics["channel_entropy_bits"].items()
+                },
+                "joint_entropy": float(metrics["joint_entropy_bits"]),
+                "mutual_information": float(metrics["mutual_information_bits"]),
+                "normalized": {
+                    key: float(value)
+                    for key, value in metrics[
+                        "normalized_mutual_information"
+                    ].items()
+                },
+            }
+        )
+    if not rows:
+        raise ValueError("At least one experiment JSON path is required.")
+
+    channel_names = list(rows[0]["channel_entropy"])
+    if len(channel_names) != 2 or set(rows[0]["normalized"]) != set(channel_names):
+        raise ValueError(
+            "Ordinal experiment JSON must contain entropy and normalized MI "
+            "for two channels."
+        )
+    if any(
+        list(row["channel_entropy"]) != channel_names
+        or set(row["normalized"]) != set(channel_names)
+        for row in rows
+    ):
+        raise ValueError("All experiment JSON files must use the same channels.")
+
+    seen_points: set[tuple[int, int, int]] = set()
+    for row in rows:
+        point = (row["n"], row["d"], row["word_length"])
+        if point in seen_points:
+            raise ValueError(
+                "Duplicate ordinal experiment for "
+                f"n={point[0]}, d={point[1]}, word_length={point[2]}."
+            )
+        seen_points.add(point)
+
+    metrics_to_plot = [
+        *[
+            (
+                f"channel_entropy:{channel}",
+                f"Entropía H({channel}) (bits)",
+                f"Entropía del canal {channel}",
+                True,
+            )
+            for channel in channel_names
+        ],
+        (
+            "mutual_information",
+            "Información mutua (bits)",
+            "Información mutua",
+            True,
+        ),
+        *[
+            (
+                f"normalized:{channel}",
+                f"IM normalizada (bits / H({channel}))",
+                (
+                    f"Transferencia de información: estímulo {channel} "
+                    "→ respuesta "
+                    f"{next(name for name in channel_names if name != channel)}"
+                ),
+                False,
+            )
+            for channel in channel_names
+        ],
+    ]
+    word_lengths = sorted({row["word_length"] for row in rows})
+    ordinal_orders = sorted({row["d"] for row in rows})
+    n_rows = max(2, math.ceil(len(word_lengths) / 4))
+
+    for metric_name, ylabel, metric_title, logarithmic in metrics_to_plot:
+        fig, axes = plt.subplots(
+            n_rows,
+            4,
+            figsize=(20, 4 * n_rows),
+            sharex=True,
+            squeeze=False,
+        )
+        for word_length, ax in zip(word_lengths, axes.flat):
+            for d in ordinal_orders:
+                curve = sorted(
+                    (
+                        row
+                        for row in rows
+                        if row["word_length"] == word_length and row["d"] == d
+                    ),
+                    key=lambda row: row["window_ms"],
+                )
+                if not curve:
+                    continue
+                if metric_name.startswith("channel_entropy:"):
+                    channel = metric_name.split(":", 1)[1]
+                    values = [row["channel_entropy"][channel] for row in curve]
+                elif metric_name.startswith("normalized:"):
+                    channel = metric_name.split(":", 1)[1]
+                    values = [row["normalized"][channel] for row in curve]
+                else:
+                    values = [row[metric_name] for row in curve]
+                ax.plot(
+                    [row["window_ms"] for row in curve],
+                    values,
+                    marker="o",
+                    markersize=3,
+                    label=f"d={d}",
+                )
+            ax.set_title(f"Palabra N={word_length}")
+            ax.set_xlabel("Ventana (ms)")
+            ax.set_ylabel(ylabel)
+            if logarithmic:
+                ax.set_yscale("log")
+            ax.grid(True, alpha=0.3)
+        for ax in axes.flat[len(word_lengths) :]:
+            ax.set_visible(False)
+        legend_entries = {}
+        for ax in axes.flat:
+            for handle, label in zip(*ax.get_legend_handles_labels()):
+                legend_entries.setdefault(label, handle)
+        fig.suptitle(f"{state_name}: {metric_title}", y=0.99)
+        if legend_entries:
+            fig.legend(
+                legend_entries.values(),
+                legend_entries.keys(),
+                loc="upper center",
+                bbox_to_anchor=(0.5, 0.955),
+                ncol=min(4, len(legend_entries)),
+                title="Orden ordinal",
+            )
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        plt.show()
+        plt.close(fig)
+
+
 def plot_comparative_mutual_information(
     experiment_paths_by_state: Mapping[str, Sequence[str | Path]],
 ) -> None:
@@ -1749,6 +1911,211 @@ def plot_comparative_mutual_information(
         plt.close(fig)
 
 
+def plot_comparative_ordinal_mutual_information(
+    experiment_paths_by_state: Mapping[
+        str, Sequence[str | Path] | pd.DataFrame
+    ],
+    d: int,
+    word_lengths: Sequence[int] | None = None,
+) -> None:
+    """Compare ordinal mutual-information results for order ``d`` across states.
+
+    Each state can be given as experiment JSON paths or as a DataFrame returned
+    by :meth:`OrdinalExperiment.run_sweep`, which must include ``output_path``.
+    Optionally restrict the comparison to selected word lengths.
+    """
+    if len(experiment_paths_by_state) != 3:
+        raise ValueError("Exactly three states must be provided for comparison.")
+
+    if word_lengths is None:
+        selected_word_lengths = list(range(1, 9))
+    else:
+        selected_word_lengths = list(word_lengths)
+        if (
+            not selected_word_lengths
+            or any(
+                isinstance(length, bool)
+                or not isinstance(length, (int, np.integer))
+                or length not in range(1, 9)
+                for length in selected_word_lengths
+            )
+        ):
+            raise ValueError("word_lengths must contain values from 1 through 8.")
+        if len(set(selected_word_lengths)) != len(selected_word_lengths):
+            raise ValueError("word_lengths must not contain duplicates.")
+        selected_word_lengths = sorted(int(length) for length in selected_word_lengths)
+
+    rows_by_state: dict[str, list[dict[str, Any]]] = {}
+    channel_names: list[str] | None = None
+    expected_word_lengths = set(selected_word_lengths)
+
+    for state_name, experiment_paths in experiment_paths_by_state.items():
+        if isinstance(experiment_paths, pd.DataFrame):
+            if "output_path" not in experiment_paths.columns:
+                raise ValueError(
+                    f"Ordinal results for {state_name!r} must include "
+                    "an 'output_path' column."
+                )
+            experiment_paths = experiment_paths["output_path"].tolist()
+
+        rows: list[dict[str, Any]] = []
+        seen_points: set[tuple[int, float]] = set()
+        for experiment_path in experiment_paths:
+            with Path(experiment_path).open(encoding="utf-8") as file:
+                payload = json.load(file)
+            if payload.get("kind") != "ordinal":
+                raise ValueError(
+                    f"Experiment JSON {experiment_path!s} is not an ordinal experiment."
+                )
+            config = payload["config"]
+            if int(config["ordinal_order"]) != d:
+                continue
+            word_length = int(config["word_length"])
+            if word_length not in expected_word_lengths:
+                continue
+
+            metrics = payload["metrics"]
+            channels = list(metrics["channel_entropy_bits"])
+            if channel_names is None:
+                channel_names = channels
+            elif channels != channel_names:
+                raise ValueError(
+                    "All experiment JSON files must use the same channel pair."
+                )
+            window_ms = float(config["window_size_ms"])
+            window_ms = float(config["window_size_ms"])
+            point = (word_length, window_ms)
+            if point in seen_points:
+                raise ValueError(
+                    f"Duplicate ordinal experiment for {state_name}, "
+                    f"d={d}, N={word_length}, window={window_ms:g} ms."
+                )
+            seen_points.add(point)
+            rows.append(
+                {
+                    "window_ms": window_ms,
+                    "word_length": word_length,
+                    "mutual_information_bits": float(
+                        metrics["mutual_information_bits"]
+                    ),
+                    "normalized": {
+                        key: float(value)
+                        for key, value in metrics[
+                            "normalized_mutual_information"
+                        ].items()
+                    },
+                }
+            )
+
+        if not rows:
+            raise ValueError(
+                f"State {state_name!r} has no ordinal experiment results for d={d}."
+            )
+        word_lengths = {row["word_length"] for row in rows}
+        if word_lengths != expected_word_lengths:
+            raise ValueError(
+                f"State {state_name!r} must include word lengths 1 through 8 "
+                f"for d={d}."
+            )
+        rows_by_state[state_name] = rows
+
+    if channel_names is None or len(channel_names) != 2:
+        raise ValueError(
+            "Ordinal experiment JSON must contain mutual information for two channels."
+        )
+    normalization_names = set(
+        rows_by_state[next(iter(rows_by_state))][0]["normalized"]
+    )
+    if normalization_names != set(channel_names):
+        raise ValueError(
+            "Ordinal experiment JSON must contain normalized MI for both channels."
+        )
+    if any(
+        set(row["normalized"]) != normalization_names
+        for rows in rows_by_state.values()
+        for row in rows
+    ):
+        raise ValueError(
+            "All ordinal experiment JSON files must contain normalized MI "
+            "for both channels."
+        )
+
+    metrics_to_plot = [
+        (
+            "mutual_information_bits",
+            "Información mutua (bits)",
+            (
+                f"Comparación de la información mutua ordinal (d={d}) "
+                f"entre {channel_names[0]} y {channel_names[1]}"
+            ),
+        ),
+        *[
+            (
+                f"normalized:{stimulus_channel}",
+                f"IM normalizada (I / H({stimulus_channel}))",
+                (
+                    f"IM ordinal normalizada (d={d}): estímulo "
+                    f"{stimulus_channel} → respuesta "
+                    f"{next(name for name in channel_names if name != stimulus_channel)}"
+                ),
+            )
+            for stimulus_channel in channel_names
+        ],
+    ]
+    colors = ("tab:blue", "tab:orange", "tab:green")
+    for metric_name, ylabel, figure_title in metrics_to_plot:
+        fig, axes = plt.subplots(
+            2,
+            4,
+            figsize=(18, 8),
+            sharex=True,
+            squeeze=False,
+        )
+        for word_length, ax in zip(selected_word_lengths, axes.flat):
+            for (state_name, rows), color in zip(rows_by_state.items(), colors):
+                word_rows = sorted(
+                    (
+                        row
+                        for row in rows
+                        if row["word_length"] == word_length
+                    ),
+                    key=lambda row: row["window_ms"],
+                )
+                values = [
+                    row["mutual_information_bits"]
+                    if metric_name == "mutual_information_bits"
+                    else row["normalized"][metric_name.split(":", 1)[1]]
+                    for row in word_rows
+                ]
+                ax.plot(
+                    [row["window_ms"] for row in word_rows],
+                    values,
+                    marker="o",
+                    markersize=3,
+                    color=color,
+                    label=state_name,
+                )
+            ax.set_title(f"Palabra N={word_length}")
+            ax.set_xlabel("Ventana (ms)")
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3)
+        for ax in axes.flat[len(selected_word_lengths) :]:
+            ax.set_visible(False)
+
+        handles, labels = axes.flat[0].get_legend_handles_labels()
+        fig.suptitle(figure_title, y=0.99)
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.955),
+            ncol=3,
+        )
+        fig.tight_layout(rect=(0, 0, 1, 0.92))
+        plt.show()
+        plt.close(fig)
+
+
 __all__ = [
     "EventConfig",
     "EventExperiment",
@@ -1759,5 +2126,7 @@ __all__ = [
     "ordinal_marginal_distributions",
     "ordinal_word_distributions",
     "plot_comparative_mutual_information",
+    "plot_comparative_ordinal_mutual_information",
     "plot_experiment_sweep",
+    "plot_ordinal_experiment_sweep",
 ]

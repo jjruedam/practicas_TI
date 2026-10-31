@@ -480,19 +480,108 @@ $$
 
 Por tanto, $d$ fija el tamaño del patrón que constituye cada símbolo ordinal, mientras que `word_length` corresponde a $N$, el número de símbolos ordinales agrupados. Al aumentar $d$ crece el alfabeto a $(d+1)!$; al aumentar $N$ crece el espacio de palabras y disminuye $M_N$. En consecuencia, las estimaciones para dimensiones o tamaños de palabra grandes requieren cautela por la escasez de observaciones respecto al número de patrones posibles.
 
+Para visualizar los resultados guardados por `OrdinalExperiment`, se puede usar
+`plot_ordinal_experiment_sweep(experiment_paths, state_name)`. La función
+organiza las gráficas por `word_length`, muestra `n` en el eje x y una curva
+por cada `d`. Las entropías y la información mutua, expresadas en bits, usan
+escala logarítmica; la información mutua normalizada usa escala lineal.
+
 ### Resultados
 
 #### Resultados por estado
 
-*Pendiente de incorporar los resultados de control, GABA y recuperación.*
+En esta sección se exponen los resultados del cálculo de la información mutua para los 432 experimentos de cada segmento experimental. Como puede observarse en las figuras, los patrones de orden parecen ofrecer una representación más adecuada de los datos, ya que muestran convergencia para configuraciones específicas.
+
+##### Estado de control
+![Información mutua del trozo C.](resources/PO_mutual_information_trozoC.png)
+
+##### Estado de inyección de GABA
+![Información mutua del trozo G.](resources/PO_mutual_information_trozoG.png)
+
+##### Estado de recuperación
+![Información mutua del trozo R.](resources/PO_mutual_information_trozoR.png)
+
+Sin embargo, algunas configuraciones muestran resultados no deseables para el comportamiento de la información mutua. Por ello, en la siguiente sección se establecerán los criterios para determinar qué configuraciones del análisis son válidas y permiten obtener resultados fiables.
+
+#### Limpieza de los resultados
+
+La discretización por patrones de orden permite una gran diversidad de representaciones de la señal mediante el balance entre el parámetro $d$ y el tamaño del alfabeto $(d+1)!$.
+
+Al aumentar la precisión de la descripción, $d=2$ ya conserva un mayor detalle de la información original que la detección de eventos. En ese mismo sentido, un aumento de $d$ permite condensar aún más la morfología de la señal. No obstante, para el análisis de información, el tamaño del alfabeto puede inflar artificialmente el valor de la entropía y, por tanto, de la información mutua.
+
+Como puede observarse en las figuras, obtener una mayor representatividad sin degenerar el cálculo de la entropía requiere calibrar cuidadosamente las variables. Si bien en secciones anteriores se definieron rangos teóricos de admisibilidad para el tamaño de ventana $n$ $(1<n<10)$ y el valor de ordinalidad $d$ $(2<d<7)$, estos no garantizan la existencia de valores óptimos.
+
+![Entropia en escala logaritmica de los distintos patrones de orden del canal VD](resources/PO_entropia_VD.png)
+
+![Entropia en escala logaritmica de los distintos patrones de orden del canal LP](resources/PO_entropia_LP.png)
+
+En términos teóricos, la entropía y la información mutua deben ser no decrecientes en función del tamaño de la ventana de discretización. Como se comprobó en la primera discretización, $n<12$ constituye una ventana segura para evitar una pérdida excesiva de información. Por ello, en este contexto debemos identificar las combinaciones de parámetros que mantienen ese comportamiento de forma consistente.
+
+Dado que el cálculo computacional y el tamaño finito de la muestra pueden producir pequeñas fluctuaciones, los resultados son susceptibles a situaciones en las que los registros no son estrictamente monótonos, aunque el comportamiento general siga siendo adecuado. Para mitigar este efecto, se aceptará una tolerancia del $1\%$ en la que los valores consecutivos se consideren equivalentes. Esto permite descartar múltiples estimaciones de la entropía y de sus correspondientes informaciones mutuas antes del análisis final.
+
+En la siguiente tabla se muestran los tamaños de palabra máximos para los que la entropía de VD y LP sigue siendo no decreciente con una tolerancia del $1\%$. Este comportamiento, en el caso de los datos de control, puede corroborarse en las figuras anteriores; además, como se observa en la tabla, el patrón es razonablemente generalizable y, a nivel gráfico, resultaría prácticamente indistinguible.
+
+| d | control | gaba | recuperación |
+|:---|:---:|:---:|:---:|
+| **2** | 8 | 8 | 8 |
+| **3** | 7 | 6 | 7 |
+| **4** | 5 | 4 | 5 |
+| **5** | 3 | 3 | 3 |
+| **6** | 1 | 1 | 2 |
+| **7** | none | none | 1 |
+
+Nota: con una tolerancia inferior al $1\%$ solo se aceptaría como válido el orden $d=2$, lo cual no es deseable, como se verá más adelante.
+
+Análogamente, la información mutua de un sistema debe ser no decreciente. En un análisis correspondiente a la información mutua, la siguiente tabla muestra para qué longitudes de palabra mínimas la información mutua se mantiene no decreciente.
+
+| d | control | gaba | recuperación |
+|:---|:---:|:---:|:---:|
+| **2** | 5 | 5 | 5 |
+| **3** | 3 | 3 | 3 |
+| **4** | 2 | 2 | 2 |
+| **5** | 1 | 1 | 1 |
+| **6** | 1 | 1 | 1 |
+| **7** | 1 | 1 | 1 |
+
+Tomados en conjunto, los valores de ambas tablas definen, respectivamente, el límite superior e inferior del tamaño de palabra compatible con un análisis válido para cada valor de $d$. Considerando únicamente los valores válidos para todos los segmentos experimentales, se concluye que:
+
+1. $d=7$ no permite ningún análisis fiable, ya que el tamaño del alfabeto distorsiona de forma inmediata el cálculo de la entropía. Con un argumento similar, también pueden descartarse $d=4,5,6$ por presentar un rango de validez más reducido en comparación con los demás casos.
+
+2. $d=2$ constituye un caso especial. Aunque, a priori, un alfabeto relativamente pequeño y la convergencia de la entropía para palabras largas parecían indicar que era una opción ideal para el cálculo de la información mutua, las pequeñas fluctuaciones de cada caso acumulan un error suficiente para descartarlo en el análisis general.
+
+3. $d=3$ presenta el mayor rango de longitudes de palabra sin degenerar el cálculo de la entropía ni el de la información mutua entre canales, por lo que es la opción adecuada para el análisis de resultados.
 
 #### Comparación entre estados
 
-*Pendiente de añadir la comparación de la información mutua entre estados.*
+La comparación entre segmentos experimentales se realizará para $d=3$ y tamaños de palabra entre 3 y 6, con el fin de garantizar la coherencia de las métricas y el comportamiento esperado de la entropía y la información mutua.
+
+A diferencia de la discretización por detección de spikes, la información mutua para los patrones de orden no parece seguir un comportamiento indefinidamente creciente en la ventana, y tampoco conserva el orden de relevancia observado en la primera discretización.
+
+![ordinal comparative mutual information](resources\PO_mutual_information_comparativa.png)
+
+![ordinal information from VD to LP](resources\PO_mutual_information_normalizada_VD_estimulo.png)
+
+![ordinal information from LP to VD](resources\PO_mutual_information_normalizada_LP_estimulo.png)
+
+Aunque estos resultados no invalidan los anteriores, es relevante observar que, al aumentar la complejidad de la discretización, la posición relativa de los segmentos de control y de inyección de GABA se invierte en varias configuraciones. Esto sugiere que la representación ordinal capta diferencias más sutiles en la estructura temporal del sistema y que la jerarquía observada en la discretización anterior no es necesariamente robusta ante cambios en la codificación simbólica.
+
+Las diferencias entre los resultados de ambas discretizaciones, aunque no son directamente comparables, dan una idea de cómo el STN mantiene un ritmo constante. Obsérvese que, aunque de manera irregular, el estado de recuperación presenta un crecimiento más marcado con respecto al tamaño de la ventana. Aunque esto no pueda relacionarse de forma causal, resulta interesante que este comportamiento sugiera una mayor comunicación a largo plazo en comparación con los otros segmentos.
+
+A partir de esta separación de comportamientos (la recuperación como comunicación a largo plazo, y el control frente a GABA como comunicación escalada a corto plazo), podríamos entender que, morfológicamente, la inyección de GABA solo hace más evidente la comunicación entre las neuronas. Es decir, en el contexto morfológico de los patrones de orden, el hecho de que la inyección de GABA tenga una información mutua proporcional en todos los tamaños de palabra podría indicar que la información transmitida es la misma, pero con mayor significancia; en otras palabras, que en el control la transmisión de información es menos evidente debido a la periodicidad de las señales.
+
+Esta hipótesis podría verse reforzada por el hecho de que, a largo plazo, la recuperación parece transmitir más información. Con longitudes de palabra más largas, la significancia de la recuperación se hace más notable, lo que evidenciaría el efecto de eliminar el ruido de interferencia de la inyección.
 
 ### Conclusiones
 
-*Pendiente de redactar las conclusiones correspondientes a los patrones de orden.*
+Como vimos en el análisis de la información mutua con la discretización basada en detección de spikes, la información mutua normalizada es una herramienta poderosa para caracterizar la comunicación entre sistemas. Sin embargo, su análisis requiere mucha precaución, dada su dependencia del procesamiento y su sensibilidad a factores estadísticos propios de los datos, como el tamaño de la muestra o la pérdida de información.
+
+A diferencia de la detección de spikes, los patrones de orden sí muestran condiciones en las que los cálculos convergen satisfactoriamente, por lo que podemos intuir que esta representación conserva mejor las características originales de los datos. Si bien nuestra primera aproximación permite establecer patrones entre los segmentos experimentales, la pérdida de información nos impide continuar con una búsqueda exhaustiva.
+
+Dadas la consistencia y la compatibilidad entre los resultados de ambas discretizaciones, es claro que existe una comunicación bidireccional entre las neuronas VD y LP que participan en el ritmo del STN. Si bien es evidente la importancia de los spikes en esta comunicación, resulta igualmente claro que el ritmo constante del sistema proviene de características más complejas que permiten recuperarlo aunque se vea interferido por factores externos.
+
+La comunicación spike-spike puede ser superior en el control como consecuencia del ritmo del sistema, pero el sistema transmite más información cuando este ritmo se pierde y, sobre todo, cuando lo está recuperando.
+
+Cabe señalar que estas conclusiones parten de la suposición de que los datos recolectados son suficientes para representar el comportamiento general de las neuronas, lo cual podría no ser cierto.
 
 ## Referencias
 
