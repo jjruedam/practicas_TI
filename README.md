@@ -58,7 +58,7 @@ Los registros extracelulares miden la caída de potencial entre dos electrodos a
 
 La perturbación experimental consiste en la inyección de GABA (neurotransmisor) sobre el circuito. Para ello se emplea un microinyector construido en el laboratorio, controlado electrónicamente y dirigido sobre la preparación. El control en tiempo real se realiza con un sistema de sinapsis artificiales y estimulación en tiempo real, que permite que la inyección dependa de la propia actividad de la red.
 
-La inyección se dispara a partir de los bursts de la neurona VD (trigger), aplicando la inyección durante 0.4ms apartir del cuarto spike dek burst. Estableciendo un lazo cerrado entre actividad y estimulación.
+La inyección se dispara a partir de los bursts de la neurona VD (trigger); se aplica durante 0,4 ms a partir del cuarto spike del burst. Esto establece un lazo cerrado entre la actividad y la estimulación.
 
 ### Protocolo temporal
 
@@ -215,7 +215,7 @@ x_N^{(t)} = \left(x_t,\,x_{t+1},\,\dots,\,x_{t+N-1}\right), \qquad
 y_N^{(t)} = \left(y_t,\,y_{t+1},\,\dots,\,y_{t+N-1}\right)
 $$
 
-Aprovechando el calculo de las entropias reducimos la estimación de la información mutua usando la siguiente identidad: 
+Aprovechando el cálculo de las entropías, reducimos la estimación de la información mutua usando la siguiente identidad:
 
 $$
 \hat{I}_N(VD,LP) = H_N(X) + H_N(Y) - H_N(X,Y)
@@ -518,11 +518,11 @@ Como puede observarse en las figuras, obtener una mayor representatividad sin de
 
 En términos teóricos, la entropía y la información mutua deben ser no decrecientes en función del tamaño de la ventana de discretización. Como se comprobó en la primera discretización, $n<12$ constituye una ventana segura para evitar una pérdida excesiva de información. Por ello, en este contexto debemos identificar las combinaciones de parámetros que mantienen ese comportamiento de forma consistente.
 
-Dado que el cálculo computacional y el tamaño finito de la muestra pueden producir pequeñas fluctuaciones, los resultados son susceptibles a situaciones en las que los registros no son estrictamente monótonos, aunque el comportamiento general siga siendo adecuado. Para mitigar este efecto, se aceptará una tolerancia del $1\%$ en la que los valores consecutivos se consideren equivalentes. Esto permite descartar múltiples estimaciones de la entropía y de sus correspondientes informaciones mutuas antes del análisis final.
+Dado que el cálculo computacional y el tamaño finito de la muestra pueden producir pequeñas fluctuaciones, los resultados pueden presentar situaciones en las que los registros no son estrictamente monótonos, aunque el comportamiento general siga siendo adecuado. Para mitigar este efecto, se aceptará una tolerancia del $1\%$ en la que los valores consecutivos se consideren equivalentes. Esto permite descartar múltiples estimaciones de la entropía y de sus correspondientes informaciones mutuas antes del análisis final.
 
 En la siguiente tabla se muestran los tamaños de palabra máximos para los que la entropía de VD y LP sigue siendo no decreciente con una tolerancia del $1\%$. Este comportamiento, en el caso de los datos de control, puede corroborarse en las figuras anteriores; además, como se observa en la tabla, el patrón es razonablemente generalizable y, a nivel gráfico, resultaría prácticamente indistinguible.
 
-| d | control | gaba | recuperación |
+| d | Control | GABA | Recuperación |
 |:---|:---:|:---:|:---:|
 | **2** | 8 | 8 | 8 |
 | **3** | 7 | 6 | 7 |
@@ -535,7 +535,7 @@ Nota: con una tolerancia inferior al $1\%$ solo se aceptaría como válido el or
 
 Análogamente, la información mutua de un sistema debe ser no decreciente. En un análisis correspondiente a la información mutua, la siguiente tabla muestra para qué longitudes de palabra mínimas la información mutua se mantiene no decreciente.
 
-| d | control | gaba | recuperación |
+| d | Control | GABA | Recuperación |
 |:---|:---:|:---:|:---:|
 | **2** | 5 | 5 | 5 |
 | **3** | 3 | 3 | 3 |
@@ -548,9 +548,9 @@ Tomados en conjunto, los valores de ambas tablas definen, respectivamente, el l�
 
 1. $d=7$ no permite ningún análisis fiable, ya que el tamaño del alfabeto distorsiona de forma inmediata el cálculo de la entropía. Con un argumento similar, también pueden descartarse $d=4,5,6$ por presentar un rango de validez más reducido en comparación con los demás casos.
 
-2. $d=2$ constituye un caso especial. A priori, un alfabeto pequeño con convergencia de la entropía para palabras largas parece ideal para el análisis de información. Sin embargo, el comportamiento de la información mutua parece mas dependiendo del tamaño de la palabra que de la técnica de discretización, por lo que su análisis resulta menos relevante.
+2. $d=2$ constituye un caso especial. A priori, un alfabeto pequeño con convergencia de la entropía para palabras largas parece ideal para el análisis de información. Sin embargo, el comportamiento de la información mutua parece depender más del tamaño de la palabra que de la técnica de discretización, por lo que su análisis resulta menos relevante.
 
-3. $d=3$ presenta  un rango intermedio y de mayor longitud de palabra sin degenerar los cálculos entre canales, por lo que es la opción adecuada para el análisis de resultados.
+3. $d=3$ presenta un rango intermedio y de mayor longitud de palabra sin degenerar los cálculos entre canales, por lo que es la opción adecuada para el análisis de resultados.
 
 #### Comparación entre estados
 
@@ -564,21 +564,21 @@ A diferencia de la discretización por detección de spikes, la información mut
 
 ![ordinal information from LP to VD](resources\PO_mutual_information_normalizada_LP_estimulo.png)
 
-Aunque estos resultados no invalidan los anteriores, el cambio de discretización resulta en que las posiciones relativas de los segmentos de control y de inyección de GABA se inviertan. Adicionalmente, en las figuras se hace evidente que la pendiente es mayor para el segmento de recuperación, aunque este efecto disminuye con el aumento de $N$.
+Aunque estos resultados no invalidan los anteriores, el cambio de discretización resulta en que las posiciones relativas de los segmentos de control y de inyección de GABA se invierten. Adicionalmente, en las figuras se hace evidente que la pendiente es mayor para el segmento de recuperación, aunque este efecto disminuye con el aumento de $N$.
 
-El primer resultado sugiere que al codificar las características morfológicas de la señal, el calculo de las informaciones mutuas recolectan características diferentes del sistema. Proponiendo una interpretación a esta diferencia, podríamos inferir que la información mutua de la codificación binaria (para palabras razonablemente largas) expresa cuanta información se trasmite entre neuronas mediante el ritmo de los spikes. En contraparte, las informaciones mutuas de los patrones de orden estará condensando cuanta información se trasmite por los diferenciales de potencial (los patrones) en un rango de tiempo.
+El primer resultado sugiere que, al codificar las características morfológicas de la señal, el cálculo de la información mutua recoge aspectos diferentes del sistema. Propone una interpretación para esta diferencia: la información mutua de la codificación binaria (para palabras razonablemente largas) expresa cuánta información se transmite entre neuronas mediante el ritmo de los spikes. En cambio, la información mutua de los patrones de orden condensaría cuánta información se transmite a través de los diferenciales de potencial (los patrones) en un rango temporal determinado.
 
-Nótese que este ultimo rango de tiempo esta determinado conjuntamente por el tamaño de ventana $n$ y el tamaño de palabra $N$. Siguiendo con nuestra interpretación, lo que parece indicarnos el segundo resultado es que para el segmento de recuperación el volumen real de información transmitida emerge en el largo plazo, con ventanas temporales lo suficientemente amplias para captar un posible retraso en la respuesta. Este comportamiento se haría cada ves menos evidente para tamaños de palabra grandes puesto que permiten que valores pequeños de $n$ sigan codificando rangos temporal lo suficientemente grandes para contener el retraso.
+Nótese que este último rango de tiempo está determinado conjuntamente por el tamaño de la ventana $n$ y por el tamaño de la palabra $N$. Siguiendo con nuestra interpretación, lo que parecen indicar los resultados es que, para el segmento de recuperación, el volumen real de información transmitida emerge a largo plazo, con ventanas temporales lo suficientemente amplias para captar un posible retraso en la respuesta. Este comportamiento se haría cada vez menos evidente para tamaños de palabra grandes, ya que permiten que valores pequeños de $n$ sigan codificando rangos temporales lo suficientemente amplios como para contener el retraso.
 
-Volviendo a la comparación entre control y GABA, esta interpretación permitiría explicar el cambio de posiciones relativas entre segmentos. Como inferimos en los primeros resultados el segmento de control, al tener el ritmo naturalmente generado por el STNS, pierde capacidad de transmitir información mediante el ritmo de los spikes cuando se introduce la interferencia de las inyecciones de GABA. Al analizar los diferenciales de potencial mediante los patrones de orden podemos ver que la interferencia de GABA, aunque modifica el ritmo, se trasmite eléctricamente mediante los diferenciales de potencial codificados en patrones, resultando en una mayor variabilidad en la morfología de la señal, que al estar mejor representada en este caso se muestra como una mayor transferencia de información.
+Volviendo a la comparación entre control y GABA, esta interpretación permitiría explicar el cambio de posiciones relativas entre segmentos. Como inferimos en los primeros resultados, el segmento de control, al tener el ritmo naturalmente generado por el STNS, pierde capacidad de transmitir información mediante el ritmo de los spikes cuando se introduce la interferencia de las inyecciones de GABA. Al analizar los diferenciales de potencial mediante los patrones de orden, podemos ver que la interferencia de GABA, aunque modifica el ritmo, se transmite eléctricamente mediante los diferenciales de potencial codificados en patrones, resultando en una mayor variabilidad en la morfología de la señal; al estar mejor representada en este caso, se muestra como una mayor transferencia de información.
 
 ### Conclusiones
 
 Como vimos en los análisis, la información mutua y la información mutua normalizada son herramientas poderosas para caracterizar la comunicación entre sistemas. Sin embargo, su análisis requiere mucha precaución dada su dependencia del procesamiento de los datos y su sensibilidad a factores estadísticos como el tamaño de la muestra o la pérdida de información.
 
-A diferencia de la detección de spikes, los patrones de orden sí muestran condiciones en las que los cálculos convergen satisfactoriamente, por lo que podemos intuir que esta representación conserva mejor las características originales de los datos. Aun así la comparativa entre los segmentos experimentales en ambos casos nos permiten explorar el comportamiento del STNS sujetos a las características extraídas por cada discretización.
+A diferencia de la detección de spikes, los patrones de orden sí muestran condiciones en las que los cálculos convergen satisfactoriamente, por lo que podemos intuir que esta representación conserva mejor las características originales de los datos. Aun así, la comparación entre los segmentos experimentales en ambos casos permite explorar el comportamiento del STNS en función de las características extraídas por cada discretización.
 
-Si bien la detección de spikes se ve limitada por la pérdida de información, dada la consistencia y la compatibilidad entre los resultados de ambas discretizaciones nos permiten corroborar que existe una comunicación bidireccional entre las neuronas VD y LP que participan en el ritmo del STNS. 
+Si bien la detección de spikes se ve limitada por la pérdida de información, la consistencia y la compatibilidad entre los resultados de ambas discretizaciones permiten corroborar que existe una comunicación bidireccional entre las neuronas VD y LP que participan en el ritmo del STNS.
 
 Las diferencias entre los resultados de ambas discretizaciones, aunque no son directamente comparables, dan una idea de cómo el STNS mantiene un ritmo constante. La importancia de la comunicación mediante el ritmo de los spikes parece ser especialmente importante en el control cuando se mantiene el ritmo del sistema. Pero resulta igualmente claro que el ritmo constante y la recuperación proviene de características más complejas de la comunicación eléctrica por medio de los diferenciales de potencial.
 
